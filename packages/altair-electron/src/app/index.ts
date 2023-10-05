@@ -7,6 +7,7 @@ import { WindowManager } from './window';
 import { store } from '../settings/main/store';
 import { AuthServer } from '../auth/server';
 import { IPC_EVENT_NAMES } from '@altairgraphql/electron-interop';
+import { log } from '../utils/log';
 
 export class ElectronApp {
   store: InMemoryStore;
@@ -18,7 +19,7 @@ export class ElectronApp {
 
     const gotTheLock = app.requestSingleInstanceLock();
     if (!gotTheLock) {
-      console.log('An instance already exists.');
+      log('An instance already exists.');
       app.quit();
       return process.exit(0);
     }
@@ -44,7 +45,7 @@ export class ElectronApp {
     // Some APIs can only be used after this event occurs.
     app.on('ready', async () => {
       const settings = store.get('settings');
-      console.log(settings);
+      log(settings);
       if (settings) {
         /**
          * @type Electron.Config
@@ -77,7 +78,7 @@ export class ElectronApp {
         const proxy = await session.defaultSession.resolveProxy(
           'http://localhost'
         );
-        console.log(proxy, proxyConfig);
+        log(proxy, proxyConfig);
       }
       this.windowManager.createWindow();
 
@@ -134,10 +135,21 @@ export class ElectronApp {
     );
 
     app.on('web-contents-created', (event, contents) => {
-      contents.on('new-window', (e, navigationUrl) => {
-        // Ask the operating system to open this event's url in the default browser.
-        e.preventDefault();
-        shell.openExternal(navigationUrl);
+      contents.setWindowOpenHandler(details => {
+        try {
+          log('Opening url', details.url);
+          // Ask the operating system to open this event's url in the default browser.
+          const url = new URL(details.url);
+          const supportedProtocols = ['http:', 'https:', 'mailto:'];
+          if (!supportedProtocols.includes(url.protocol)) {
+            log('Unsupported protocol', url.protocol);
+            return { action: 'deny' };
+          }
+          shell.openExternal(url.href);
+        } catch (err) {
+          log('Error opening url', err);
+        }
+        return { action: 'deny' };
       });
     });
   }
