@@ -10,7 +10,7 @@
       {{ 'SAVE_TO_COLLECTION_NAME_OF_QUERY' | translate }}
       <input
         type="text"
-        class="dialog-input"
+        class="input"
         [(ngModel)]="newCollectionQueryTitle"
         attr.aria-label="{{ 'SAVE_TO_COLLECTION_NAME_OF_QUERY' | translate }}"
         data-test-id="collection-query-name"
@@ -27,11 +27,12 @@
           name="collection"
           nzPlaceHolder="Choose"
         >
-          <nz-option
-            *ngFor="let collection of collections; trackBy: trackById"
-            [nzValue]="collection.id"
-            [nzLabel]="collection.title"
-          ></nz-option>
+          @for (collection of collections; track trackById($index, collection)) {
+            <nz-option
+              [nzValue]="collection.id"
+              [nzLabel]="collection.title"
+            ></nz-option>
+          }
           <nz-option
             nzValue="-1"
             [nzLabel]="
@@ -41,17 +42,15 @@
         </nz-select>
       </nz-form-control>
     </div>
-    <ng-container *ngIf="isNewCollection()">
+    @if (isNewCollection()) {
       <div class="app-dialog-section">
         {{ 'SAVE_TO_COLLECTION_COLLECTION_NAME' | translate }}
         <input
           type="text"
-          class="dialog-input"
+          class="input"
           [(ngModel)]="newCollectionTitle"
           placeholder="Collection name"
-          attr.aria-label="{{
-            'SAVE_TO_COLLECTION_COLLECTION_NAME' | translate
-          }}"
+          attr.aria-label="{{ 'SAVE_TO_COLLECTION_COLLECTION_NAME' | translate }}"
           data-test-id="new-collection-name"
         />
       </div>
@@ -69,30 +68,28 @@
         </nz-form-control>
       </div>
       <!-- if logged in, and not saving to a parent collection, then show workspaces option -->
-      <div
-        class="app-dialog-section"
-        *ngIf="
-          loggedIn && newCollectionParentCollectionId === parentCollectionRootId
-        "
-      >
-        <nz-form-label>{{
-          'SAVE_TO_COLLECTION_SELECT_WORKSPACE' | translate
-        }}</nz-form-label>
-        <nz-form-control>
-          <nz-select
-            class="dialog-block"
-            [(ngModel)]="workspaceId"
-            name="workspace"
-            nzPlaceHolder="Choose"
-          >
-            <nz-option
-              *ngFor="let workspace of workspaces; trackBy: trackById"
-              [nzValue]="workspace.id"
-              [nzLabel]="workspace.label"
-            ></nz-option>
-          </nz-select>
-        </nz-form-control>
-      </div>
-    </ng-container>
+      @if (loggedIn && newCollectionParentCollectionId === parentCollectionRootId) {
+        <div class="app-dialog-section">
+          <nz-form-label>{{
+            'SAVE_TO_COLLECTION_SELECT_WORKSPACE' | translate
+          }}</nz-form-label>
+          <nz-form-control>
+            <nz-select
+              class="dialog-block"
+              [(ngModel)]="workspaceId"
+              name="workspace"
+              nzPlaceHolder="Choose"
+            >
+              @for (workspace of workspaces; track trackById($index, workspace)) {
+                <nz-option
+                  [nzValue]="workspace.id"
+                  [nzLabel]="workspace.label"
+                ></nz-option>
+              }
+            </nz-select>
+          </nz-form-control>
+        </div>
+      }
+    }
   </div>
 </app-dialog>

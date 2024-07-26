@@ -244,7 +244,11 @@ const syncStateUpdate = async () => {
   try {
     if (syncTransaction) {
       debug.log('Deliberately aborting any current transaction');
-      syncTransaction.abort();
+      try {
+        await syncTransaction.abort();
+      } catch {
+        // ignore
+      }
       syncTransaction = null;
     }
 

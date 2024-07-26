@@ -1,6 +1,11 @@
-import { throwError as observableThrowError, Observable, of } from 'rxjs';
+import {
+  throwError as observableThrowError,
+  Observable,
+  of,
+  throwError,
+} from 'rxjs';
 
-import { map, catchError } from 'rxjs/operators';
+import { map, catchError, switchMap, toArray } from 'rxjs/operators';
 import {
   HttpHeaders,
   HttpClient,
@@ -33,11 +38,8 @@ import { oldIntrospectionQuery } from './oldIntrospectionQuery';
 import { buildClientSchema as oldBuildClientSchema } from './oldBuildClientSchema';
 import { debug } from '../../utils/logger';
 
-import * as fromHeaders from '../../store/headers/headers.reducer';
-import * as fromVariables from '../../store/variables/variables.reducer';
 import { fillAllFields, FillAllFieldsOptions } from './fillFields';
 import { parseJson, setByDotNotation } from '../../utils';
-import { Token } from 'codemirror';
 import { IDictionary, Omit } from '../../interfaces/shared';
 import {
   refactorFieldsWithFragmentSpread,
@@ -53,32 +55,55 @@ import { SelectedOperation } from 'altair-graphql-core/build/types/state/query.i
 import { prettify } from './prettifier';
 import { Position } from '../../utils/editor/helpers';
 import { ElectronAppService } from '../electron-app/electron-app.service';
+import { ELECTRON_ALLOWED_FORBIDDEN_HEADERS } from '@altairgraphql/electron-interop/build/constants';
+import { SendRequestResponse } from 'altair-graphql-core/build/script/types';
+import { HttpRequestHandler } from 'altair-graphql-core/build/request/handlers/http';
+import {
+  GraphQLRequestHandler,
+  MultiResponseStrategy,
+} from 'altair-graphql-core/build/request/types';
+import { PerWindowState } from 'altair-graphql-core/build/types/state/per-window.interfaces';
+import { buildResponse } from 'altair-graphql-core/build/request/response-builder';
 
 interface SendRequestOptions {
+  url: string;
   query: string;
   method: string;
   withCredentials?: boolean;
   variables?: string;
+  extensions?: string;
   headers?: HeaderState;
   files?: FileVariable[];
   selectedOperation?: SelectedOperation;
+  additionalParams?: string;
+  batchedRequest?: boolean;
+  handler?: GraphQLRequestHandler;
 }
 
-export interface SendRequestResponse {
-  response: HttpResponse<any>;
-  meta: {
-    requestStartTime: number;
-    requestEndTime: number;
-    responseTime: number;
-    headers: IDictionary;
-  };
-}
+export const BATCHED_REQUESTS_OPERATION = 'BatchedRequests';
 
 interface ResolvedFileVariable {
   name: string;
   data: File;
 }
-type IntrospectionRequestOptions = Omit<SendRequestOptions, 'query'>;
+interface IntrospectionRequestOptions
+  extends Omit<
+    SendRequestOptions,
+    'query' | 'batchedRequest' | 'files' | 'selectedOperation'
+  > {
+  inputValueDeprecation?: boolean;
+  descriptions?: boolean;
+  directiveIsRepeatable?: boolean;
+  schemaDescription?: boolean;
+  specifiedByUrl?: boolean;
+}
+
+interface GraphQLRequestData {
+  query: string;
+  variables: Record<string, unknown>;
+  operationName?: SelectedOperation;
+  extensions?: Record<string, unknown>;
+}
 
 @Injectable()
 export class GqlService {
@@ -90,9 +115,6 @@ export class GqlService {
   headers = new HttpHeaders();
   introspectionData = {};
 
-  private api_url = localStorage.getItem('altair:url');
-  private method = 'POST';
-
   constructor(
     private http: HttpClient,
     private notifyService: NotifyService,
@@ -102,51 +124,45 @@ export class GqlService {
     this.setHeaders();
   }
 
-  sendRequest(
-    url: string,
-    opts: SendRequestOptions
-  ): Observable<SendRequestResponse> {
+  /**
+   * @deprecated use {@link sendRequestV2} instead
+   */
+  sendRequest(opts: SendRequestOptions): Observable<SendRequestResponse> {
     // Only need resolvedFiles to know if valid files exist at this point
     const { resolvedFiles } = this.normalizeFiles(opts.files);
 
-    this.setUrl(url)
-      .setHTTPMethod(opts.method)
-      // Skip json default headers for files
-      .setHeaders(opts.headers, {
-        skipDefaults: this.isGETRequest(opts.method) || !!resolvedFiles.length,
-      });
+    // Skip json default headers for files
+    this.setHeaders(opts.headers, {
+      skipDefaults: this.isGETRequest(opts.method) || !!resolvedFiles.length,
+    });
 
     const requestStartTime = new Date().getTime();
-    return this._send({
-      query: opts.query,
-      variables: opts.variables,
-      selectedOperation: opts.selectedOperation,
-      files: opts.files,
-      withCredentials: opts.withCredentials,
-    }).pipe(
+    return this._send(opts).pipe(
       map((response) => {
         const requestEndTime = new Date().getTime();
         const requestElapsedTime = requestEndTime - requestStartTime;
 
         return {
-          response,
-          meta: {
-            requestStartTime,
-            requestEndTime,
-            responseTime: requestElapsedTime,
-            headers: response.headers
-              .keys()
-              .reduce(
-                (acc, key) => ({ ...acc, [key]: response.headers.get(key) }),
-                {}
-              ),
-          },
+          ok: response.ok,
+          body: response.body,
+          status: response.status,
+          statusText: response.statusText,
+          url: response.url ?? '',
+          requestStartTime,
+          requestEndTime,
+          responseTime: requestElapsedTime,
+          headers: response.headers
+            .keys()
+            .reduce(
+              (acc, key) => ({ ...acc, [key]: response.headers.get(key) }),
+              {}
+            ),
         };
       })
     );
   }
 
-  isGETRequest(method = this.method) {
+  private isGETRequest(method: string) {
     return method.toLowerCase() === 'get';
   }
 
@@ -156,12 +172,13 @@ export class GqlService {
       newHeaders = new HttpHeaders(this.defaultHeaders);
     }
 
-    const forbiddenHeaders = ['Origin'];
+    if (headers?.length) {
+      // For electron app, send the instruction to set headers
+      this.electronAppService.setHeaders(headers);
 
-    if (headers && headers.length) {
       headers.forEach((header) => {
         if (
-          !forbiddenHeaders.includes(header.key) &&
+          !ELECTRON_ALLOWED_FORBIDDEN_HEADERS.includes(header.key.toLowerCase()) &&
           header.enabled &&
           header.key &&
           header.value
@@ -176,46 +193,65 @@ export class GqlService {
   }
 
   getParamsFromData(data: IDictionary) {
-    return Object.keys(data).reduce(
-      (params, key) =>
-        data[key]
-          ? params.set(
-              key,
-              typeof data[key] === 'object'
-                ? JSON.stringify(data[key])
-                : data[key]
-            )
-          : params,
-      new HttpParams()
+    return Object.keys(data).reduce((params, key) => {
+      let value = data[key];
+      if (value) {
+        value = typeof value === 'object' ? JSON.stringify(value) : value;
+        params = params.set(key, value);
+      }
+      return params;
+    }, new HttpParams());
+  }
+
+  getIntrospectionRequest(opts: IntrospectionRequestOptions) {
+    return this._getIntrospectionRequest(opts).pipe(
+      toArray(),
+      switchMap((resps) => {
+        const lastResponse = resps.at(-1);
+
+        if (!lastResponse) {
+          return throwError(() => new Error('No response!'));
+        }
+
+        // concatenate the responses to get the full introspection data
+        const builtResponse = buildResponse(
+          resps.map((r) => ({
+            content: r.body,
+            timestamp: r.requestEndTime,
+          })),
+          MultiResponseStrategy.CONCATENATE
+        );
+
+        lastResponse.body = builtResponse[0]?.content ?? '';
+        return of(lastResponse);
+      })
     );
   }
 
-  setUrl(url: string) {
-    this.api_url = url;
-    return this;
-  }
-
-  setHTTPMethod(httpVerb: string) {
-    this.method = httpVerb;
-    return this;
-  }
-
-  getIntrospectionRequest(url: string, opts: IntrospectionRequestOptions) {
+  private _getIntrospectionRequest(opts: IntrospectionRequestOptions) {
     const requestOpts: SendRequestOptions = {
-      query: getIntrospectionQuery(),
+      url: opts.url,
+      query: getIntrospectionQuery({
+        descriptions: opts.descriptions ?? true,
+        inputValueDeprecation: opts.inputValueDeprecation,
+        directiveIsRepeatable: opts.directiveIsRepeatable,
+        schemaDescription: opts.schemaDescription,
+        specifiedByUrl: opts.specifiedByUrl,
+      }),
       headers: opts.headers,
       method: opts.method,
       withCredentials: opts.withCredentials,
-      variables: '{}',
+      variables: opts.variables,
+      extensions: opts.extensions,
       selectedOperation: 'IntrospectionQuery',
+      additionalParams: opts.additionalParams,
+      handler: opts.handler,
     };
-    return this.sendRequest(url, requestOpts).pipe(
+    return this.sendRequestV2(requestOpts).pipe(
       map((data) => {
-        debug.log('introspection', data.response);
-        if (!data.response.ok) {
-          throw new Error(
-            `Introspection request failed with: ${data.response.status}`
-          );
+        debug.log('introspection', data.body);
+        if (!data.ok) {
+          throw new Error(`Introspection request failed with: ${data.status}`);
         }
         return data;
       }),
@@ -223,16 +259,14 @@ export class GqlService {
         debug.log('Error from first introspection query.', err);
 
         // Try the old introspection query
-        return this.sendRequest(url, {
+        return this.sendRequestV2({
           ...requestOpts,
           query: oldIntrospectionQuery,
         }).pipe(
           map((data) => {
             debug.log('old introspection', data);
-            if (!data.response.ok) {
-              throw new Error(
-                `Introspection request failed with: ${data.response.status}`
-              );
+            if (!data.ok) {
+              throw new Error(`Introspection request failed with: ${data.status}`);
             }
             return data;
           })
@@ -241,10 +275,8 @@ export class GqlService {
     );
   }
 
-  getIntrospectionSchema(
-    introspection?: IntrospectionQuery
-  ): GraphQLSchema | null {
-    if (!introspection || !introspection.__schema) {
+  getIntrospectionSchema(introspection?: IntrospectionQuery): GraphQLSchema | null {
+    if (!introspection?.__schema) {
       return null;
     }
 
@@ -331,13 +363,20 @@ export class GqlService {
    * Checks if a query contains a subscription operation
    * @param query
    */
-  isSubscriptionQuery(query: string) {
-    const parsedQuery = this.parseQueryOrEmptyDocument(query);
-
-    if (!parsedQuery.definitions) {
-      return false;
+  isSubscriptionQuery(query: string, state: PerWindowState) {
+    const { operations, selectedOperation } = this.calculateSelectedOperation(
+      state,
+      query
+    );
+    if (operations?.length && selectedOperation) {
+      return operations.some((operation) => {
+        return (
+          operation.name?.value === selectedOperation &&
+          operation.operation === 'subscription'
+        );
+      });
     }
-
+    const parsedQuery = this.parseQueryOrEmptyDocument(query);
     return parsedQuery.definitions.reduce((acc, cur) => {
       return (
         acc ||
@@ -362,9 +401,7 @@ export class GqlService {
   getOperationAtIndex(query: string, index: number) {
     return this.getOperations(query).find((operation) => {
       return Boolean(
-        operation.loc &&
-          operation.loc.start <= index &&
-          operation.loc.end >= index
+        operation.loc && operation.loc.start <= index && operation.loc.end >= index
       );
     });
   }
@@ -373,7 +410,7 @@ export class GqlService {
     const operation = this.getOperationAtIndex(query, index);
 
     if (operation) {
-      return operation.name && operation.name.value ? operation.name.value : '';
+      return operation?.name?.value ?? '';
     }
     return '';
   }
@@ -417,7 +454,9 @@ export class GqlService {
             !availableOperationNames.includes(selectedOperation)) ||
           !selectedOperation
         ) {
-          if (operationNameAtCursorIndex) {
+          if (selectedOperation === BATCHED_REQUESTS_OPERATION) {
+            newSelectedOperation = null;
+          } else if (operationNameAtCursorIndex) {
             newSelectedOperation = operationNameAtCursorIndex;
           } else {
             newSelectedOperation = null;
@@ -443,6 +482,37 @@ export class GqlService {
       operations,
       requestSelectedOperationFromUser,
     };
+  }
+
+  calculateSelectedOperation(state: PerWindowState, query: string) {
+    try {
+      const queryEditorIsFocused = state.query.queryEditorState?.isFocused;
+      const operationData = this.getSelectedOperationData({
+        query,
+        selectedOperation: state.query.selectedOperation,
+        selectIfOneOperation: true,
+        queryCursorIndex: queryEditorIsFocused
+          ? state.query.queryEditorState.cursorIndex
+          : undefined,
+      });
+      if (operationData.requestSelectedOperationFromUser) {
+        return {
+          selectedOperation: '',
+          operations: operationData.operations,
+          error: `You have more than one query operations. You need to select the one you want to run from the dropdown.`,
+        };
+      }
+      return {
+        selectedOperation: operationData.selectedOperation,
+        operations: operationData.operations,
+      };
+    } catch (err) {
+      debug.error(err);
+      return {
+        selectedOperation: '',
+        error: 'Could not select operation',
+      };
+    }
   }
 
   /**
@@ -578,8 +648,18 @@ export class GqlService {
       if (file.isMultiple) {
         if (Array.isArray(file.data)) {
           file.data.forEach((fileData, i) => {
+            let n = `${file.name}.${i}`;
+            // check if name contains the $$ placeholder, and replace it with the index
+            if (file.name.split('.').includes('$$')) {
+              n = file.name
+                .split('.')
+                .map((part) => {
+                  return part === '$$' ? i : part;
+                })
+                .join('.');
+            }
             const newFileVariable = {
-              name: `${file.name}.${i}`,
+              name: n,
               data: fileData,
             };
 
@@ -624,13 +704,17 @@ export class GqlService {
    * @param vars
    */
   private _send({
+    url,
+    method,
     query,
     variables,
+    extensions,
     selectedOperation,
     files,
     withCredentials,
-  }: Omit<SendRequestOptions, 'method'>) {
-    const data = {
+    batchedRequest,
+  }: SendRequestOptions) {
+    const data: GraphQLRequestData = {
       query,
       variables: {},
       operationName: null as SelectedOperation,
@@ -638,13 +722,6 @@ export class GqlService {
     let body: FormData | string | undefined;
     let params: HttpParams | undefined;
     const headers = this.headers;
-
-    // For electron app, send the instruction to set headers
-    this.electronAppService.setHeaders(
-      headers
-        .keys()
-        .map((k) => ({ key: k, value: headers.get(k) ?? '', enabled: true }))
-    );
 
     if (selectedOperation) {
       data.operationName = selectedOperation;
@@ -661,7 +738,19 @@ export class GqlService {
       }
     }
 
-    if (!this.isGETRequest()) {
+    // if there is an extensions option, add it to the data
+    if (extensions) {
+      try {
+        data.extensions = JSON.parse(extensions);
+      } catch (err) {
+        // Notify the user about badly written extensions.
+        debug.error(err);
+        this.notifyService.error('Your request extensions is not valid JSON');
+        return observableThrowError(err);
+      }
+    }
+
+    if (!this.isGETRequest(method)) {
       const { resolvedFiles } = this.normalizeFiles(files);
       if (resolvedFiles && resolvedFiles.length) {
         // https://github.com/jaydenseric/graphql-multipart-request-spec#multipart-form-field-structure
@@ -680,18 +769,39 @@ export class GqlService {
 
         body = formData;
       } else {
-        body = JSON.stringify(data);
+        // Handle batched requests
+        if (batchedRequest) {
+          const operations = this.getOperations(data.query);
+          if (operations.length > 1) {
+            const operationQueries = operations.map((operation) => {
+              const operationName = operation.name?.value;
+              const operationQuery = print(operation);
+              const operationVariables = data.variables;
+              const operationExtensions = data.extensions;
+
+              return {
+                operationName,
+                query: operationQuery,
+                variables: operationVariables,
+                extensions: operationExtensions,
+              };
+            });
+
+            body = JSON.stringify(operationQueries);
+          }
+        }
+        body ??= JSON.stringify(data);
       }
     } else {
       params = this.getParamsFromData(data);
     }
-    if (!this.api_url) {
+    if (!url) {
       throw new Error('You need to have a URL for the request!');
     }
     return this.http
-      .request(this.method, this.api_url, {
+      .request(method, url, {
         // GET method uses params, while the other methods use body
-        ...(!this.isGETRequest() && { body }),
+        ...(!this.isGETRequest(method) && { body }),
         params,
         headers,
         observe: 'response',
@@ -738,5 +848,102 @@ export class GqlService {
           return observableThrowError(err);
         })
       );
+  }
+
+  sendRequestV2({
+    url,
+    method,
+    query,
+    variables,
+    headers,
+    extensions,
+    selectedOperation,
+    files,
+    withCredentials,
+    batchedRequest,
+    additionalParams,
+    handler = new HttpRequestHandler(),
+  }: SendRequestOptions): Observable<SendRequestResponse> {
+    // wrapping the logic to properly handle any errors (both within and outside the observable)
+    return of(undefined).pipe(
+      switchMap(() => {
+        const { resolvedFiles } = this.normalizeFiles(files);
+
+        if (headers?.length) {
+          // For electron app, send the instruction to set headers
+          this.electronAppService.setHeaders(headers);
+
+          // Filter out headers that are not allowed
+          headers = headers.filter((header) => {
+            return (
+              !ELECTRON_ALLOWED_FORBIDDEN_HEADERS.includes(
+                header.key.toLowerCase()
+              ) &&
+              header.enabled &&
+              header.key &&
+              header.value
+            );
+          });
+        }
+
+        // valiate variables
+        if (variables) {
+          try {
+            JSON.parse(variables);
+          } catch (err) {
+            throw new Error('Variables is not valid JSON');
+          }
+        }
+
+        // validate extensions
+        if (extensions) {
+          try {
+            JSON.parse(extensions);
+          } catch (err) {
+            throw new Error('Request extensions is not valid JSON');
+          }
+        }
+
+        return handler
+          .handle({
+            url,
+            method,
+            query,
+            variables: variables ? parseJson(variables, {}) : undefined,
+            headers,
+            extensions: extensions ? parseJson(extensions, {}) : undefined,
+            selectedOperation,
+            files: resolvedFiles,
+            withCredentials,
+            batchedRequest,
+            additionalParams: additionalParams
+              ? parseJson(additionalParams, {})
+              : undefined,
+          })
+          .pipe(
+            map((response) => {
+              return {
+                ok: response.ok,
+                body: response.data,
+                headers: Object.fromEntries(response.headers),
+                status: response.status,
+                statusText: response.statusText,
+                url: response.url,
+                requestStartTime: response.requestStartTimestamp,
+                requestEndTime: response.requestEndTimestamp,
+                responseTime: response.resopnseTimeMs,
+              };
+            })
+          );
+      }),
+
+      catchError((err) => {
+        if (err instanceof Error) {
+          this.notifyService.error(err.message);
+        }
+        debug.error(err);
+        throw err;
+      })
+    );
   }
 }

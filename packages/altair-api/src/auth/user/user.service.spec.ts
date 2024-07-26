@@ -16,6 +16,7 @@ import {
 } from '../mocks/stripe-service.mock';
 import Stripe from 'stripe';
 import { PRO_PLAN_ID } from '@altairgraphql/db';
+// import { beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 describe('UserService', () => {
   let service: UserService;
@@ -51,9 +52,7 @@ describe('UserService', () => {
 
     it('should return the created user object', async () => {
       // GIVEN
-      jest
-        .spyOn(prismaService.user, 'create')
-        .mockResolvedValueOnce(mockUser());
+      jest.spyOn(prismaService.user, 'create').mockResolvedValueOnce(mockUser());
 
       // WHEN
       const user = await service.createUser(payloadMock);
@@ -81,9 +80,7 @@ describe('UserService', () => {
         .mockRejectedValueOnce(Error('Unexpected error'));
 
       // THEN
-      expect(service.createUser(payloadMock)).rejects.toThrow(
-        'Unexpected error'
-      );
+      expect(service.createUser(payloadMock)).rejects.toThrow('Unexpected error');
     });
   });
 
@@ -91,9 +88,7 @@ describe('UserService', () => {
     it('should return a user object', async () => {
       // GIVEN
       const userMock = mockUser();
-      jest
-        .spyOn(prismaService.user, 'findUnique')
-        .mockResolvedValueOnce(userMock);
+      jest.spyOn(prismaService.user, 'findUnique').mockResolvedValueOnce(userMock);
 
       // WHEN
       const user = await service.mustGetUser(userMock.id);
@@ -132,9 +127,7 @@ describe('UserService', () => {
     it('should return the the basic plan if no plan was found for the user', async () => {
       // GIVEN
       const user = mockUser();
-      jest
-        .spyOn(prismaService.userPlan, 'findUnique')
-        .mockResolvedValueOnce(null);
+      jest.spyOn(prismaService.userPlan, 'findUnique').mockResolvedValueOnce(null);
       jest
         .spyOn(prismaService.planConfig, 'findUnique')
         .mockResolvedValueOnce(mockPlanConfig());
@@ -151,15 +144,11 @@ describe('UserService', () => {
     it("should throw an error if the user doesn't have a customer ID associated on Stripe", () => {
       // GIVEN
       const userMock = mockUser();
-      userMock.stripeCustomerId = undefined;
-      jest
-        .spyOn(prismaService.user, 'findUnique')
-        .mockResolvedValueOnce(userMock);
+      userMock.stripeCustomerId = null;
+      jest.spyOn(prismaService.user, 'findUnique').mockResolvedValueOnce(userMock);
 
       // THEN
-      expect(
-        service.updateSubscriptionQuantity(userMock.id, 1)
-      ).rejects.toThrow(
+      expect(service.updateSubscriptionQuantity(userMock.id, 1)).rejects.toThrow(
         'Cannot update subscription quantity since user (f7102dc9-4c0c-42b4-9a17-e2bd4af94d5a) does not have a stripe customer ID'
       );
     });
@@ -167,9 +156,7 @@ describe('UserService', () => {
     it('should return the updated subscription item', async () => {
       // GIVEN
       const userMock = mockUser();
-      jest
-        .spyOn(prismaService.user, 'findUnique')
-        .mockResolvedValueOnce(userMock);
+      jest.spyOn(prismaService.user, 'findUnique').mockResolvedValueOnce(userMock);
       jest
         .spyOn(stripeService, 'updateSubscriptionQuantity')
         .mockResolvedValueOnce(mockSubscriptionItem());
@@ -189,9 +176,7 @@ describe('UserService', () => {
     it('should return the stripe customer ID', () => {
       // GIVEN
       const userMock = mockUser();
-      jest
-        .spyOn(prismaService.user, 'findUnique')
-        .mockResolvedValueOnce(userMock);
+      jest.spyOn(prismaService.user, 'findUnique').mockResolvedValueOnce(userMock);
 
       // THEN
       expect(service.getStripeCustomerId(userMock.id)).resolves.toEqual(
@@ -204,12 +189,12 @@ describe('UserService', () => {
       const userMock = mockUser();
       jest
         .spyOn(prismaService.user, 'findUnique')
-        .mockResolvedValueOnce({ ...userMock, stripeCustomerId: undefined });
+        .mockResolvedValueOnce({ ...userMock, stripeCustomerId: null });
       jest
         .spyOn(stripeService, 'connectOrCreateCustomer')
         .mockResolvedValueOnce(mockStripeCustomer());
       jest.spyOn(prismaService.user, 'update').mockImplementation(() => {
-        return null;
+        return null as any;
       });
 
       // THEN
@@ -224,9 +209,7 @@ describe('UserService', () => {
       // GIVEN
       const userMock = mockUser();
       const mockUrl = 'https://myurl.com/123';
-      jest
-        .spyOn(prismaService.user, 'findUnique')
-        .mockResolvedValueOnce(userMock);
+      jest.spyOn(prismaService.user, 'findUnique').mockResolvedValueOnce(userMock);
       jest.spyOn(stripeService, 'createBillingSession').mockResolvedValueOnce({
         url: mockUrl,
       } as Stripe.Response<Stripe.BillingPortal.Session>);
@@ -243,12 +226,12 @@ describe('UserService', () => {
     it(`should return a user object`, () => {
       // GIVEN
       const userMock = mockUser();
-      jest
-        .spyOn(prismaService.user, 'findFirst')
-        .mockResolvedValueOnce(userMock);
+      jest.spyOn(prismaService.user, 'findFirst').mockResolvedValueOnce(userMock);
 
       // WHEN
-      const user = service.getUserByStripeCustomerId(userMock.stripeCustomerId);
+      const user = service.getUserByStripeCustomerId(
+        userMock.stripeCustomerId ?? ''
+      );
 
       // THEN
       expect(user).resolves.toBeUser();
@@ -264,15 +247,15 @@ describe('UserService', () => {
       jest
         .spyOn(prismaService.userPlan, 'findUnique')
         .mockResolvedValueOnce(mockUserPlan());
-      jest
-        .spyOn(prismaService.user, 'findUnique')
-        .mockResolvedValueOnce(userMock);
+      jest.spyOn(prismaService.user, 'findUnique').mockResolvedValueOnce(userMock);
       jest
         .spyOn(stripeService, 'getPlanInfoByRole')
         .mockResolvedValueOnce(mockPlanInfo());
-      jest.spyOn(stripeService, 'createCheckoutSession').mockResolvedValueOnce({
-        url: urlMock,
-      } as Stripe.Response<Stripe.Checkout.Session>);
+      jest
+        .spyOn(stripeService, 'createSubscriptionCheckoutSession')
+        .mockResolvedValueOnce({
+          url: urlMock,
+        } as Stripe.Response<Stripe.Checkout.Session>);
 
       // WHEN
       const url = await service.getProPlanUrl(userMock.id);
@@ -291,9 +274,7 @@ describe('UserService', () => {
       jest
         .spyOn(prismaService.userPlan, 'findUnique')
         .mockResolvedValueOnce(userPlanMock);
-      jest
-        .spyOn(prismaService.user, 'findUnique')
-        .mockResolvedValueOnce(userMock);
+      jest.spyOn(prismaService.user, 'findUnique').mockResolvedValueOnce(userMock);
       jest.spyOn(stripeService, 'createBillingSession').mockResolvedValueOnce({
         url: proUrlMock,
       } as Stripe.Response<Stripe.BillingPortal.Session>);
@@ -311,12 +292,10 @@ describe('UserService', () => {
       jest
         .spyOn(prismaService.userPlan, 'findUnique')
         .mockResolvedValueOnce(mockUserPlan());
-      jest
-        .spyOn(prismaService.user, 'findUnique')
-        .mockResolvedValueOnce(userMock);
+      jest.spyOn(prismaService.user, 'findUnique').mockResolvedValueOnce(userMock);
       jest
         .spyOn(stripeService, 'getPlanInfoByRole')
-        .mockResolvedValueOnce(null);
+        .mockResolvedValueOnce(null as any);
 
       // THEN
       expect(service.getProPlanUrl(userMock.id)).rejects.toThrow(

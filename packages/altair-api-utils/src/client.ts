@@ -1,4 +1,3 @@
-import { APIClientOptions, ClientEnvironment, getClientConfig } from './config';
 import {
   ALTAIR_API_USER_TOKEN_STORAGE_KEY,
   OAUTH_POPUP_CALLBACK_MESSAGE_TYPE,
@@ -16,22 +15,29 @@ import {
   QueryCollection,
   Team,
   TeamMembership,
-  TeamMemberRole,
+  QueryItemRevision,
+  AiChatSession,
+  AiChatMessage,
 } from '@altairgraphql/db';
+import { AltairConfig } from 'altair-graphql-core/build/config';
 import { IPlan, IPlanInfo, IUserProfile, IUserStats } from './user';
-import {
-  ICreateTeamDto,
-  ICreateTeamMembershipDto,
-  IUpdateTeamDto,
-} from './team';
+import { ICreateTeamDto, ICreateTeamMembershipDto, IUpdateTeamDto } from './team';
 import { from, Observable, Subject } from 'rxjs';
 import { map, switchMap, take } from 'rxjs/operators';
 import { ReturnedWorkspace } from './workspace';
+import { ConfigEnvironment } from 'altair-graphql-core/build/config/environment';
+import { UrlConfig } from 'altair-graphql-core/build/config/urls';
+import { getAltairConfig } from 'altair-graphql-core/build/config';
+import { IRateMessageDto, ISendMessageDto } from './ai';
+import { IAvailableCredits } from 'altair-graphql-core/build/types/state/account.interfaces';
 export type FullQueryCollection = QueryCollection & {
   queries: QueryItem[];
 };
 export type ReturnedTeamMembership = TeamMembership & {
   user: Pick<IUserProfile, 'firstName' | 'lastName' | 'email'>;
+};
+export type QueryItemRevisionWithUsername = QueryItemRevision & {
+  createdByUser: Pick<IUserProfile, 'firstName' | 'lastName' | 'email'>;
 };
 
 const SignInTimeout = 15 * 60 * 1000; // 15m
@@ -52,7 +58,7 @@ export class APIClient {
   ky: KyInstance;
   authToken?: string;
 
-  user$ = new Subject<IUserProfile>();
+  user$ = new Subject<IUserProfile | undefined>();
   private _user?: IUserProfile;
   get user() {
     return this._user;
@@ -62,12 +68,13 @@ export class APIClient {
     this.user$.next(val);
   }
 
-  constructor(public options: APIClientOptions) {
+  constructor(public urlConfig: UrlConfig) {
     this.ky = ky.extend({
-      prefixUrl: options.apiBaseUrl,
+      prefixUrl: urlConfig.api,
       hooks: {
         beforeRequest: [(req) => this.setAuthHeaderBeforeRequest(req)],
       },
+      timeout: false,
     });
 
     this.checkCachedUser();
@@ -120,7 +127,7 @@ export class APIClient {
   }
 
   private getPopupUrl(nonce: string) {
-    const url = new URL(this.options.loginClientUrl);
+    const url = new URL(this.urlConfig.loginClient);
     url.searchParams.append('nonce', nonce);
     url.searchParams.append('sc', location.origin);
 
@@ -155,7 +162,7 @@ export class APIClient {
 
   private async signinWithPopupGetToken() {
     const nonce = this.nonce();
-    const popup = window.open(this.getPopupUrl(nonce), 'Altair GraphQL');
+    const popup = window.open(this.getPopupUrl(nonce), '_blank');
     if (!popup) {
       throw new Error('Could not create signin popup!');
     }
@@ -166,7 +173,7 @@ export class APIClient {
           if (type === OAUTH_POPUP_CALLBACK_MESSAGE_TYPE) {
             if (
               new URL(message.origin).href !==
-              new URL(this.options.loginClientUrl).href
+              new URL(this.urlConfig.loginClient).href
             ) {
               return reject(new Error('origin does not match!'));
             }
@@ -210,6 +217,18 @@ export class APIClient {
 
   getQuery(id: string) {
     return this.ky.get(`queries/${id}`).json<QueryItem | undefined>();
+  }
+
+  getQueryRevisions(id: string) {
+    return this.ky
+      .get(`queries/${id}/revisions`)
+      .json<QueryItemRevisionWithUsername[]>();
+  }
+
+  restoreQueryRevision(id: string, revisionId: string) {
+    return this.ky
+      .post(`queries/${id}/revisions/${revisionId}/restore`)
+      .json<QueryItem>();
   }
 
   createQueryCollection(collectionInput: ICreateQueryCollectionDto) {
@@ -258,9 +277,7 @@ export class APIClient {
   }
 
   addTeamMember(input: ICreateTeamMembershipDto) {
-    return this.ky
-      .post('team-memberships', { json: input })
-      .json<TeamMembership>();
+    return this.ky.post('team-memberships', { json: input }).json<TeamMembership>();
   }
 
   getTeamMembers(teamId: string) {
@@ -299,6 +316,50 @@ export class APIClient {
     return this.ky.get('plans').json<IPlanInfo[]>();
   }
 
+  getAvailableCredits() {
+    return this.ky.get('credits').json<IAvailableCredits>();
+  }
+
+  buyCredits() {
+    return this.ky.post('credits/buy').json<{
+      url: string | null;
+    }>();
+  }
+
+  getActiveAiSession() {
+    return this.ky.get('ai/sessions/active').json<AiChatSession>();
+  }
+
+  createAiSession() {
+    return this.ky.post('ai/sessions').json<AiChatSession>();
+  }
+
+  getAiSessionMessages(sessionId: string) {
+    return this.ky.get(`ai/sessions/${sessionId}/messages`).json<AiChatMessage[]>();
+  }
+
+  sendMessageToAiSession(sessionId: string, input: ISendMessageDto) {
+    return this.ky
+      .post(`ai/sessions/${sessionId}/messages`, { json: input })
+      .json<{ response: string }>();
+  }
+
+  rateAiMessage(sessionId: string, messageId: string, input: IRateMessageDto) {
+    return this.ky
+      .post(`ai/sessions/${sessionId}/messages/${messageId}/rate`, {
+        json: input,
+      })
+      .json<AiChatMessage>();
+  }
+
+  getQueryShareUrl(queryId: string) {
+    const url = new URL(this.urlConfig.loginClient);
+    url.searchParams.set('action', 'share');
+    url.searchParams.set('q', queryId);
+
+    return url.toString();
+  }
+
   // short-lived-token for events
   private getSLT() {
     return this.ky.get(`auth/slt`).json<{ slt: string }>();
@@ -320,7 +381,7 @@ export class APIClient {
     return from(this.getSLT()).pipe(
       take(1),
       map((res) => {
-        const url = new URL('/events', this.options.apiBaseUrl);
+        const url = new URL('/events', this.urlConfig.api);
 
         url.searchParams.append('slt', res.slt);
 
@@ -331,10 +392,8 @@ export class APIClient {
   }
 }
 
-export const initializeClient = (env: ClientEnvironment = 'development') => {
-  const config = getClientConfig(env);
-
-  const apiClient = new APIClient(config);
+export const initializeClient = (env: ConfigEnvironment = 'development') => {
+  const apiClient = new APIClient(getAltairConfig().getUrlConfig(env));
 
   return apiClient;
 };

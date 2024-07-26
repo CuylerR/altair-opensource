@@ -54,6 +54,8 @@ export class QueryCollectionsComponent implements OnInit, OnChanges {
   @Output() syncCollectionsChange = new EventEmitter();
   @Output() sortCollectionsChange = new EventEmitter<SortByOptions>();
   @Output() sortCollectionQueriesChange = new EventEmitter<SortByOptions>();
+  @Output() showQueryRevisionsChange = new EventEmitter<string>();
+  @Output() copyQueryShareLinkChange = new EventEmitter<string>();
 
   collections$ = new BehaviorSubject<IQueryCollection[]>([]);
   workspaces$ = new BehaviorSubject<WorkspaceOption[]>([]);

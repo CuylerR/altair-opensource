@@ -1,12 +1,11 @@
 {
   "name": "altair-koa-middleware",
   "description": "Koa middleware for altair graphql client",
-  "version": "5.2.5",
+  "version": "7.3.3",
   "author": "Samuel Imolorhe <altair@sirmuel.design> (https://sirmuel.design)",
   "bugs": "https://github.com/altair-graphql/altair/issues",
   "dependencies": {
-    "@koa/router": "^10.1.1",
-    "altair-static": "^5.2.5",
+    "altair-static": "^7.3.3",
     "koa-send": "^5.0.1"
   },
   "devDependencies": {
@@ -21,7 +20,10 @@
     "supertest": "^6.1.6",
     "ts-jest": "29.0.5",
     "ts-node": "^10.2.1",
-    "typescript": "4.9.5"
+    "typescript": "5.2.2"
+  },
+  "peerDependencies": {
+    "@koa/router": "11 - 12"
   },
   "engines": {
     "node": ">= 12"
@@ -30,7 +32,6 @@
     "type": "opencollective",
     "url": "https://opencollective.com/altair"
   },
-  "gitHead": "e5ce60f5a14997f1471a961ac76efacbb044df46",
   "homepage": "https://github.com/altair-graphql/altair#readme",
   "keywords": [
     "altair",

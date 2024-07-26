@@ -1,5 +1,6 @@
 export const IPC_EVENT_NAMES = {
   FILE_OPENED: 'file-opened',
+  URL_OPENED: 'url-opened',
   CERTIFICATE_ERROR: 'certificate-error',
   IMPORT_APP_DATA: 'import-app-data',
   EXPORT_APP_DATA: 'export-app-data',
@@ -32,4 +33,13 @@ export const STORE_EVENTS = {
   GET_STORE_OBJECT: 'electron-store:getStoreObject',
 };
 
+export const ALTAIR_CUSTOM_PROTOCOL = 'altair';
+
 export const electronApiKey = 'electronApi';
+
+// https://developer.mozilla.org/en-US/docs/Glossary/Forbidden_header_name
+export const ELECTRON_ALLOWED_FORBIDDEN_HEADERS = [
+  'origin',
+  'cookie',
+  'referer',
+].map((_) => _.toLowerCase());

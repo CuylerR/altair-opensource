@@ -13,7 +13,7 @@ import { JSONSchema6 } from 'json-schema';
 })
 export class SchemaFormItemListComponent {
   @Input() item?: SchemaFormProperty;
-  @Input() data: unknown[] = [];
+  @Input() data: unknown[] | undefined;
 
   @Output() dataChange = new EventEmitter();
 
@@ -52,7 +52,7 @@ export class SchemaFormItemListComponent {
     return true;
   }
 
-  trackByIndex(index: number) {
+  trackByIndex(index: number, s: any) {
     return index;
   }
 }

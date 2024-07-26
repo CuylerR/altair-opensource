@@ -15,8 +15,11 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { Request } from 'express';
 import { CreateQueryDto } from './dto/create-query.dto';
 import { UpdateQueryDto } from './dto/update-query.dto';
+import { QueryItem } from '@altairgraphql/db';
+import { ApiTags } from '@nestjs/swagger';
 
 @Controller('queries')
+@ApiTags('Queries')
 @UseGuards(JwtAuthGuard)
 export class QueriesController {
   constructor(private readonly queriesService: QueriesService) {}
@@ -65,5 +68,21 @@ export class QueriesController {
     }
 
     return res;
+  }
+
+  @Get(':id/revisions')
+  async getRevisions(@Req() req: Request, @Param('id') id: string) {
+    const userId = req?.user?.id ?? '';
+    return this.queriesService.listRevisions(userId, id);
+  }
+
+  @Post(':id/revisions/:revisionId/restore')
+  async restoreRevision(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('revisionId') revisionId: string
+  ): Promise<QueryItem> {
+    const userId = req?.user?.id ?? '';
+    return this.queriesService.restoreRevision(userId, revisionId);
   }
 }

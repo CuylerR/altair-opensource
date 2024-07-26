@@ -1,6 +1,31 @@
 import deepmerge from 'deepmerge';
 import colors from 'color-name';
 
+/*
+Some theming ideas:
+#1a1c24 - A deep charcoal gray with a subtle blue undertone.
+#181a1f - A very dark gray with a cool, slightly bluish tint.
+#212529 - A dark cool gray with a hint of blue.
+#232931 - A rich, deep blue-gray shade that pairs well with greens.
+#2d2f33 - A slightly lighter dark gray with a subtle blue cast.
+
+If the background color is #1a1c24 (deep charcoal gray), you could use #2d3138 for borders.
+For a #181a1f (very dark gray) background, consider #262a2e for borders.
+With a #212529 (dark cool gray) background, #343a40 would make a good border color.
+If you choose #232931 (rich blue-gray) as the background, #3a4149 would be a suitable border shade.
+For a #2d2f33 (slightly lighter dark gray) background, #404448 could work well for borders.
+*/
+
+// TODO: Introduce glassmorphism
+// https://uxdesign.cc/glassmorphism-in-user-interfaces-1f39bb1308c9
+// https://codepen.io/kanishkkunal/pen/QWGzBwz
+// https://codepen.io/TurkAysenur/pen/ZEpxeYm
+// https://codepen.io/gutugaluppo/pen/MWjjWPx
+// https://codepen.io/omeal/pen/VwKKgjG
+// https://codepen.io/opeala/pen/yLaMBvN
+// https://dribbble.com/shots/16261258-Metaspark-web-site-design-landing-page-home-page-ui/attachments/8128256?mode=media
+// https://smarative.com/blog/realistic-frosted-glassmorphism-css-gradient-borders
+
 export const foundations = {
   easing: 'ease',
   colors: {
@@ -33,15 +58,84 @@ export const foundations = {
   },
 };
 
-const theme = deepmerge(foundations, {
+export interface ITheme {
+  easing: string;
+  colors: {
+    black: string;
+    darkGray: string;
+    gray: string;
+    lightGray: string;
+    white: string;
+    green: string;
+    blue: string;
+    rose: string;
+    cerise: string;
+    red: string;
+    orange: string;
+    yellow: string;
+    lightRed: string;
+    darkPurple: string;
+
+    primary: string;
+    secondary: string;
+    tertiary: string;
+
+    bg: string;
+    offBg: string;
+    font: string;
+    offFont: string;
+    border: string;
+    offBorder: string;
+
+    headerBg: string;
+  };
+  type: {
+    fontSize: {
+      base: number;
+      remBase: number;
+      body: number;
+      bodySmaller: number;
+    };
+    fontFamily: {
+      default: string;
+    };
+  };
+  isSystem: boolean;
+  shadow: {
+    color: string;
+    opacity: number;
+  };
+  editor: {
+    fontFamily: {
+      default: string;
+    };
+    fontSize: number;
+    colors: {
+      comment: string;
+      string: string;
+      number: string;
+      variable: string;
+      keyword: string;
+      atom: string;
+      attribute: string;
+      property: string;
+      punctuation: string;
+      definition: string;
+      builtin: string;
+      cursor: string;
+    };
+  };
+}
+
+const theme: ITheme = deepmerge(foundations, {
   isSystem: false,
   colors: {
     primary: foundations.colors.green,
     secondary: foundations.colors.blue,
     tertiary: foundations.colors.rose,
 
-    bg: foundations.colors.white,
-    offBg: foundations.colors.lightGray,
+    bg: foundations.colors.lightGray,
+    offBg: foundations.colors.white,
     font: foundations.colors.black,
     offFont: foundations.colors.darkGray,
     border: foundations.colors.gray,
@@ -79,11 +173,10 @@ type RecursivePartial<T> = {
   [P in keyof T]?: T[P] extends (infer U)[]
     ? RecursivePartial<U>[]
     : T[P] extends object
-    ? RecursivePartial<T[P]>
-    : T[P];
+      ? RecursivePartial<T[P]>
+      : T[P];
 };
 
-export type ITheme = typeof theme;
 export type ICustomTheme = RecursivePartial<ITheme>;
 
 interface RGBA {
@@ -156,7 +249,7 @@ export const mergeThemes = (...customThemes: ICustomTheme[]): ICustomTheme => {
 
 export const createTheme = (
   customTheme: ICustomTheme,
-  extraTheme: ICustomTheme = {}
+  ...extraThemes: ICustomTheme[]
 ): ITheme => {
-  return deepmerge.all([theme, customTheme, extraTheme]) as ITheme;
+  return deepmerge.all([theme, customTheme, ...extraThemes]) as ITheme;
 };

@@ -5,48 +5,67 @@
   [showFooter]="false"
   (toggleDialog)="toggleDialogChange.emit($event)"
 >
-<div class="account-signin-wrapper">
-  <ng-container
-    *ngIf="!account?.loggedIn"
-  >
-    <p>Sign in to manage your teams, synced collections and queries.</p>
-    <button
-      class="app-button active-primary"
-      (click)="submitLogin()"
-    >
-      {{ 'SIGNIN_WITH_GOOGLE' | translate }}
-    </button>
-  </ng-container>
+  <div class="account-signin-wrapper">
+    @if (!account?.loggedIn) {
+      <p>Sign in to manage your teams, synced collections and queries.</p>
+      <button class="btn btn--primary" (click)="submitLogin()">
+        {{ 'SIGNIN_WITH_GOOGLE' | translate }}
+      </button>
+    }
 
-  <ng-container
-    *ngIf="account?.loggedIn"
-  >
-    <div class="app-dialog-section">
-      <div class="account-dialog__welcome">
-        <nz-avatar [nzText]="account?.firstName?.at(0)" [nzSrc]="account?.picture"></nz-avatar>
-        {{ 'ACCOUNT_HELLO' | translate }}, {{ account?.firstName }}
+    @if (account?.loggedIn) {
+      <div class="app-dialog-section">
+        <div class="account-dialog__welcome">
+          <nz-avatar
+            [nzText]="account?.firstName?.at(0)"
+            [nzSrc]="account?.picture"
+          ></nz-avatar>
+          {{ 'ACCOUNT_HELLO' | translate }}, {{ account?.firstName }}
+        </div>
       </div>
-    </div>
-    <p>
-      <a class="link" target="_blank" (click)="openBillingPage($event)">
-        Billing
-        <app-icon name="external-link"></app-icon>
-      </a>
-    </p>
-    <div class="account-dialog__stats">
-      <div class="account-dialog__stats-title">
-        Plan Stats <app-icon name="info" [popper]="'The stats show how much resources you have and the number of resources allowed for your current plan'"></app-icon>
+      <p>
+        <a class="link" target="_blank" (click)="openBillingPage($event)">
+          Billing
+          <app-icon name="external-link"></app-icon>
+        </a>
+      </p>
+      <div class="account-dialog__stats">
+        <div class="account-dialog__stats-title">
+          Plan Stats
+          <app-icon
+            name="info"
+            nz-tooltip
+            [nzTooltipTitle]="'ACCOUNT_PLAN_STATS_DESCRIPTION' | translate"
+          ></app-icon>
+        </div>
+        <div>Plan: {{ account?.plan?.id }}</div>
+        <div>
+          Queries: {{ account?.stats?.queriesCount ?? 0 }} /
+          {{ account?.plan?.maxQueriesCount ?? 0 }}
+        </div>
+        <div>
+          Teams: {{ account?.stats?.teamsCount ?? 0 }} /
+          {{ account?.plan?.maxTeamsCount ?? 0 }}
+        </div>
+        <div>Fixed Credits: {{ account?.availableCredits?.fixed ?? 0 }}</div>
+        <div>
+          Monthly Credits (Pro users only):
+          {{ account?.availableCredits?.monthly ?? 0 }}
+        </div>
+        <button
+          class="btn btn--primary btn--light btn--small"
+          (click)="buyCredits($event)"
+          [disabled]="account?.plan?.canUpgradePro"
+        >
+          <app-icon name="coins"></app-icon> Buy Credits
+          @if (account?.plan?.canUpgradePro) {
+            (Pro users only)
+          }
+        </button>
       </div>
-      <div>Plan: {{ account?.plan?.id }}</div>
-      <div>Queries: {{ account?.stats?.queriesCount ?? 0 }} / {{ account?.plan?.maxQueriesCount ?? 0 }}</div>
-      <div>Teams: {{ account?.stats?.teamsCount ?? 0 }} / {{ account?.plan?.maxTeamsCount ?? 0 }}</div>
-    </div>
-    <button
-      class="app-button active-grey"
-      (click)="logoutChange.emit()"
-    >
-      {{ 'LOGOUT_TEXT' | translate }}
-    </button>
-  </ng-container>
-</div>
+      <button class="btn" (click)="logoutChange.emit()">
+        {{ 'LOGOUT_TEXT' | translate }}
+      </button>
+    }
+  </div>
 </app-dialog>

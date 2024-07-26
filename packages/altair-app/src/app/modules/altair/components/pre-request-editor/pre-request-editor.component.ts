@@ -3,7 +3,7 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { PrerequestState } from 'altair-graphql-core/build/types/state/prerequest.interfaces';
 import { getRequestScriptExtensions } from '../../utils/editor/extensions';
 import { PreRequestService } from '../../services';
-import { getGlobalContext } from '../../services/pre-request/helpers';
+import { getGlobalContext } from 'altair-graphql-core/build/script/context';
 
 const AUTOCOMPLETE_CHARS = /^[a-zA-Z0-9_]$/;
 
@@ -25,8 +25,11 @@ export class PreRequestEditorComponent {
       {
         headers: [],
         environment: {},
+        operationName: '',
         query: '',
         variables: '',
+        url: '',
+        requestExtensions: '',
       },
       {
         setCookie: async () => {},

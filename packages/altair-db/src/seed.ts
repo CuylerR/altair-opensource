@@ -1,27 +1,34 @@
+/* eslint-disable no-console */
 import { PrismaClient } from '@prisma/client';
-import { BASIC_PLAN_ID } from './constants';
+import {
+  BASIC_PLAN_ID,
+  DEFAULT_MAX_QUERY_COUNT,
+  DEFAULT_MAX_TEAM_COUNT,
+  DEFAULT_MAX_TEAM_MEMBER_COUNT,
+  DEFAULT_QUERY_REVISION_LIMIT,
+} from './constants';
+import { creditInitialBalance } from './seeds/credit-users';
 
 // initialize Prisma Client
 const prisma = new PrismaClient();
 
 async function main() {
-  // create the basic plan config
-  const basicPlan = await prisma.planConfig.create({
-    data: {
+  const basicPlanExists = await prisma.planConfig.findUnique({
+    where: {
       id: BASIC_PLAN_ID,
-      maxQueryCount: 20,
-      maxTeamCount: 1,
-      maxTeamMemberCount: 2,
-      allowMoreTeamMembers: false,
     },
   });
 
-  console.log({ basicPlan });
+  if (!basicPlanExists) {
+    await createBasicPlan();
+  }
+
+  await creditInitialBalance(prisma);
 }
 
 // execute the main function
 main()
-  .catch(e => {
+  .catch((e) => {
     console.error(e);
     process.exit(1);
   })
@@ -29,6 +36,22 @@ main()
     // close Prisma Client at the end
     await prisma.$disconnect();
   });
+
+async function createBasicPlan() {
+  // create the basic plan config
+  const basicPlan = await prisma.planConfig.create({
+    data: {
+      id: BASIC_PLAN_ID,
+      maxQueryCount: DEFAULT_MAX_QUERY_COUNT,
+      maxTeamCount: DEFAULT_MAX_TEAM_COUNT,
+      maxTeamMemberCount: DEFAULT_MAX_TEAM_MEMBER_COUNT,
+      queryRevisionLimit: DEFAULT_QUERY_REVISION_LIMIT,
+      allowMoreTeamMembers: false,
+    },
+  });
+
+  console.log({ basicPlan });
+}
 
 async function createTeamWorkspaces() {
   const teamsWithoutWorkspace = await prisma.team.findMany({

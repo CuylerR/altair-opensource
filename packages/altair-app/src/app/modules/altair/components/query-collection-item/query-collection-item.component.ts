@@ -41,6 +41,8 @@ export class QueryCollectionItemComponent {
   }> = new EventEmitter();
   @Output() exportCollectionChange = new EventEmitter();
   @Output() sortCollectionQueriesChange = new EventEmitter<SortByOptions>();
+  @Output() showQueryRevisionsChange = new EventEmitter<string>();
+  @Output() copyQueryShareLinkChange = new EventEmitter<string>();
 
   showContent = true;
 
@@ -56,20 +58,23 @@ export class QueryCollectionItemComponent {
 
   deleteQuery(query: IQuery) {
     this.modal.confirm({
-      nzTitle:
-        'Are you sure you want to delete this query from the collection?',
+      nzTitle: 'Are you sure you want to delete this query from the collection?',
       nzContent: 'Note: This is an irreversible action.',
       nzOkText: 'Yes',
       nzCancelText: 'Cancel',
       nzOnOk: () => {
         if (this.collectionTree) {
-          this.deleteQueryChange.next({
+          this.deleteQueryChange.emit({
             query,
             collectionId: this.collectionTree.id,
           });
         }
       },
     });
+  }
+
+  showQueryRevisionsDialog(query: IQuery) {
+    this.showQueryRevisionsChange.emit(query.id);
   }
 
   deleteCollection() {
@@ -80,7 +85,7 @@ export class QueryCollectionItemComponent {
       nzCancelText: 'Cancel',
       nzOnOk: () => {
         if (this.collectionTree) {
-          this.deleteCollectionChange.next({
+          this.deleteCollectionChange.emit({
             collectionId: this.collectionTree.id,
           });
         }
@@ -92,21 +97,21 @@ export class QueryCollectionItemComponent {
     if (!this.collectionTree) {
       throw new Error('should never happen');
     }
-    this.editCollectionChange.next({ collection: this.collectionTree });
+    this.editCollectionChange.emit({ collection: this.collectionTree });
   }
 
   syncCollection() {
     if (!this.collectionTree) {
       throw new Error('should never happen');
     }
-    this.syncCollectionChange.next({ collection: this.collectionTree });
+    this.syncCollectionChange.emit({ collection: this.collectionTree });
   }
 
   exportCollection() {
     if (!this.collectionTree) {
       throw new Error('should never happen');
     }
-    this.exportCollectionChange.next({
+    this.exportCollectionChange.emit({
       collectionId: this.collectionTree.id,
     });
   }

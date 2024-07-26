@@ -1,13 +1,23 @@
 import loglevel from 'loglevel';
 import prefix from 'loglevel-plugin-prefix';
 
+export interface ILogger {
+  log(...args: any[]): void;
+  debug(...args: any[]): void;
+  info(...args: any[]): void;
+  warn(...args: any[]): void;
+  error(...args: any[]): void;
+}
+
 prefix.reg(loglevel);
 export const createLogger = (environment: {
   production: boolean;
   version: string;
-}) => {
+}): ILogger => {
   if (!environment.production) {
     loglevel.setLevel('TRACE');
+  } else {
+    loglevel.setLevel('ERROR');
   }
 
   const PREVIOUS_VERSION_KEY = 'altair__debug_previous_version';
@@ -37,6 +47,8 @@ export const createLogger = (environment: {
         console.log('Current version:', currentVersion());
         console.groupEnd();
         loglevel.setLevel('TRACE');
+      } else {
+        loglevel.setLevel('ERROR');
       }
       (window as any)._ALTAIR__ENABLE_DEBUG_MODE__ = value;
     },

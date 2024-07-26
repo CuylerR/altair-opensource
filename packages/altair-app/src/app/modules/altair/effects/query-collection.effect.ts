@@ -28,11 +28,12 @@ import {
   NotifyService,
   ApiService,
 } from '../services';
-import { downloadJson, openFile, openFiles } from '../utils';
+import { downloadJson, fromPromise, openFile, openFiles } from '../utils';
 import { RootState } from 'altair-graphql-core/build/types/state/state.interfaces';
 import { IQuery } from 'altair-graphql-core/build/types/state/collection.interfaces';
 import { UnknownError } from '../interfaces/shared';
 import { debug } from '../utils/logger';
+import { getApiErrorCode, getErrorResponse } from '../utils/errors';
 
 @Injectable()
 export class QueryCollectionEffects {
@@ -41,9 +42,7 @@ export class QueryCollectionEffects {
   createCollectionAndSaveQueryToCollection$: Observable<Action> = createEffect(
     () => {
       return this.actions$.pipe(
-        ofType(
-          collectionActions.CREATE_COLLECTION_AND_SAVE_QUERY_TO_COLLECTION
-        ),
+        ofType(collectionActions.CREATE_COLLECTION_AND_SAVE_QUERY_TO_COLLECTION),
         withLatestFrom(
           this.store,
           (
@@ -107,9 +106,18 @@ export class QueryCollectionEffects {
         tap(() => this.notifyService.success('Created collection.')),
         map(() => new collectionActions.LoadCollectionsAction()),
         catchError((err: UnknownError) => {
-          debug.error(err);
-          this.notifyService.errorWithError(err, 'Could not create collection');
-          return EMPTY;
+          return fromPromise(getErrorResponse(err)).pipe(
+            switchMap((err) => {
+              debug.error(err);
+              this.notifyService.errorWithError(err, 'Could not create collection');
+              if (getApiErrorCode(err) === 'ERR_MAX_QUERY_COUNT') {
+                this.store.dispatch(
+                  new windowsMetaActions.ShowUpgradeDialogAction({ value: true })
+                );
+              }
+              return EMPTY;
+            })
+          );
         }),
         repeat()
       );
@@ -130,10 +138,7 @@ export class QueryCollectionEffects {
         }
       ),
       switchMap((res) =>
-        forkJoin([
-          of(res),
-          this.windowService.getWindowExportData(res.windowId),
-        ])
+        forkJoin([of(res), this.windowService.getWindowExportData(res.windowId)])
       ),
       switchMap(([res, exportData]) => {
         const query = exportData;
@@ -154,12 +159,22 @@ export class QueryCollectionEffects {
       tap(() => this.notifyService.success('Added query to collection.')),
       map(() => new collectionActions.LoadCollectionsAction()),
       catchError((err: UnknownError) => {
-        debug.error(err);
-        this.notifyService.errorWithError(
-          err,
-          'Could not add query to collection'
+        return fromPromise(getErrorResponse(err)).pipe(
+          switchMap((err) => {
+            debug.error(err);
+            this.notifyService.errorWithError(
+              err,
+              'Could not add query to collection'
+            );
+
+            if (getApiErrorCode(err) === 'ERR_MAX_QUERY_COUNT') {
+              this.store.dispatch(
+                new windowsMetaActions.ShowUpgradeDialogAction({ value: true })
+              );
+            }
+            return EMPTY;
+          })
         );
-        return EMPTY;
       }),
       repeat()
     );
@@ -179,10 +194,7 @@ export class QueryCollectionEffects {
         }
       ),
       switchMap((res) =>
-        forkJoin([
-          of(res),
-          this.windowService.getWindowExportData(res.windowId),
-        ])
+        forkJoin([of(res), this.windowService.getWindowExportData(res.windowId)])
       ),
       switchMap(([res, exportData]) => {
         const query = exportData;
@@ -215,12 +227,16 @@ export class QueryCollectionEffects {
       tap(() => this.notifyService.success('Updated query in collection.')),
       map(() => new collectionActions.LoadCollectionsAction()),
       catchError((err: UnknownError) => {
-        debug.error(err);
-        this.notifyService.errorWithError(
-          err,
-          'Could not update query in collection'
+        return fromPromise(getErrorResponse(err)).pipe(
+          switchMap((err) => {
+            debug.error(err);
+            this.notifyService.errorWithError(
+              err,
+              'Could not update query in collection'
+            );
+            return EMPTY;
+          })
         );
-        return EMPTY;
       }),
       repeat()
     );
@@ -238,14 +254,16 @@ export class QueryCollectionEffects {
           return EMPTY;
         }),
         tap(() => {
-          this.store.dispatch(
-            new windowsActions.ReloadCollectionWindowsAction()
-          );
+          this.store.dispatch(new windowsActions.ReloadCollectionWindowsAction());
         }),
         catchError((err: UnknownError) => {
-          debug.error(err);
-          this.notifyService.errorWithError(err, 'Could not load collection');
-          return EMPTY;
+          return fromPromise(getErrorResponse(err)).pipe(
+            switchMap((err) => {
+              debug.error(err);
+              this.notifyService.errorWithError(err, 'Could not load collection');
+              return EMPTY;
+            })
+          );
         }),
         repeat()
       );
@@ -265,12 +283,16 @@ export class QueryCollectionEffects {
       tap(() => this.notifyService.success('Deleted query from collection.')),
       map(() => new collectionActions.LoadCollectionsAction()),
       catchError((err: UnknownError) => {
-        debug.error(err);
-        this.notifyService.errorWithError(
-          err,
-          'Could not delete query from collection'
+        return fromPromise(getErrorResponse(err)).pipe(
+          switchMap((err) => {
+            debug.error(err);
+            this.notifyService.errorWithError(
+              err,
+              'Could not delete query from collection'
+            );
+            return EMPTY;
+          })
         );
-        return EMPTY;
       }),
       repeat()
     );
@@ -288,9 +310,13 @@ export class QueryCollectionEffects {
       tap(() => this.notifyService.success('Updated collection.')),
       map(() => new collectionActions.LoadCollectionsAction()),
       catchError((err: UnknownError) => {
-        debug.error(err);
-        this.notifyService.errorWithError(err, 'Could not update collection');
-        return EMPTY;
+        return fromPromise(getErrorResponse(err)).pipe(
+          switchMap((err) => {
+            debug.error(err);
+            this.notifyService.errorWithError(err, 'Could not update collection');
+            return EMPTY;
+          })
+        );
       }),
       repeat()
     );
@@ -300,19 +326,18 @@ export class QueryCollectionEffects {
     return this.actions$.pipe(
       ofType(collectionActions.DELETE_COLLECTION),
       switchMap((action: collectionActions.DeleteCollectionAction) => {
-        return this.collectionService.deleteCollection(
-          action.payload.collectionId
-        );
+        return this.collectionService.deleteCollection(action.payload.collectionId);
       }),
-      tap(() => this.notifyService.success('Deleted query from collection.')),
+      tap(() => this.notifyService.success('Deleted collection successfully.')),
       map(() => new collectionActions.LoadCollectionsAction()),
       catchError((err: UnknownError) => {
-        debug.error(err);
-        this.notifyService.errorWithError(
-          err,
-          'Could not delete query from collection'
+        return fromPromise(getErrorResponse(err)).pipe(
+          switchMap((err) => {
+            debug.error(err);
+            this.notifyService.errorWithError(err, 'Could not delete collection');
+            return EMPTY;
+          })
         );
-        return EMPTY;
       }),
       repeat()
     );
@@ -334,9 +359,13 @@ export class QueryCollectionEffects {
           return EMPTY;
         }),
         catchError((err: UnknownError) => {
-          debug.error(err);
-          this.notifyService.errorWithError(err, 'Could not export collection');
-          return EMPTY;
+          return fromPromise(getErrorResponse(err)).pipe(
+            switchMap((err) => {
+              debug.error(err);
+              this.notifyService.errorWithError(err, 'Could not export collection');
+              return EMPTY;
+            })
+          );
         }),
         repeat()
       );
@@ -364,12 +393,16 @@ export class QueryCollectionEffects {
       }),
       map(() => new collectionActions.LoadCollectionsAction()),
       catchError((error) => {
-        debug.error(error);
-        this.notifyService.errorWithError(
-          error,
-          `Something went wrong importing collection`
+        return fromPromise(getErrorResponse(error)).pipe(
+          switchMap((err) => {
+            debug.error(err);
+            this.notifyService.errorWithError(
+              err,
+              'Something went wrong importing collection'
+            );
+            return EMPTY;
+          })
         );
-        return EMPTY;
       }),
       repeat()
     );
@@ -383,12 +416,16 @@ export class QueryCollectionEffects {
       ),
       map(() => new collectionActions.LoadCollectionsAction()),
       catchError((error) => {
-        debug.error(error);
-        this.notifyService.errorWithError(
-          error,
-          `Something went wrong syncing remote collections.`
+        return fromPromise(getErrorResponse(error)).pipe(
+          switchMap((err) => {
+            debug.error(err);
+            this.notifyService.errorWithError(
+              err,
+              'Something went wrong syncing remote collections.'
+            );
+            return EMPTY;
+          })
         );
-        return EMPTY;
       }),
       repeat()
     );
@@ -404,12 +441,16 @@ export class QueryCollectionEffects {
         return new collectionActions.LoadCollectionsAction();
       }),
       catchError((error) => {
-        debug.error(error);
-        this.notifyService.errorWithError(
-          error,
-          `Something went wrong syncing remote collections.`
+        return fromPromise(getErrorResponse(error)).pipe(
+          switchMap((err) => {
+            debug.error(err);
+            this.notifyService.errorWithError(
+              err,
+              'Something went wrong listening for collection changes.'
+            );
+            return EMPTY;
+          })
         );
-        return EMPTY;
       }),
       repeat()
     );
@@ -418,26 +459,28 @@ export class QueryCollectionEffects {
   syncLocalCollectionToRemote$: Observable<Action> = createEffect(() => {
     return this.actions$.pipe(
       ofType(collectionActions.SYNC_LOCAL_COLLECTION_TO_REMOTE),
-      switchMap(
-        (action: collectionActions.SyncLocalCollectionToRemoteAction) => {
-          const collection = action.payload.collection;
+      switchMap((action: collectionActions.SyncLocalCollectionToRemoteAction) => {
+        const collection = action.payload.collection;
 
-          if (collection.id) {
-            return from(
-              this.collectionService.transformCollectionToRemoteCollection(
-                collection.id
-              )
-            );
-          }
-          return EMPTY;
+        if (collection.id) {
+          return from(
+            this.collectionService.transformCollectionToRemoteCollection(
+              collection.id
+            )
+          );
         }
-      ),
+        return EMPTY;
+      }),
       tap(() => this.notifyService.success('Synced collection to remote.')),
       map(() => new collectionActions.LoadCollectionsAction()),
       catchError((err: UnknownError) => {
-        debug.error(err);
-        this.notifyService.errorWithError(err, 'Could not sync collection');
-        return EMPTY;
+        return fromPromise(getErrorResponse(err)).pipe(
+          switchMap((err) => {
+            debug.error(err);
+            this.notifyService.errorWithError(err, 'Could not sync collection');
+            return EMPTY;
+          })
+        );
       }),
       repeat()
     );

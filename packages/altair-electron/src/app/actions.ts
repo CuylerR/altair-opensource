@@ -3,60 +3,66 @@ import { checkForUpdates } from '../updates';
 import { BrowserWindow, MenuItem } from 'electron';
 import url from 'url';
 import path from 'path';
-import { getStaticDirectory } from '../utils';
+import { getDistDirectory } from '@altairgraphql/electron-settings-static';
+import { WindowManager } from './window';
 
 export class ActionManager {
-  constructor(private windowInstance: BrowserWindow) {}
+  constructor(private windowManager: WindowManager) {}
 
   createTab() {
-    this.windowInstance.webContents.send('create-tab', true);
+    this.windowManager.getInstance()?.webContents.send('create-tab', true);
   }
 
   closeTab() {
-    this.windowInstance.webContents.send('close-tab', true);
+    this.windowManager.getInstance()?.webContents.send('close-tab', true);
   }
 
   nextTab() {
-    this.windowInstance.webContents.send('next-tab', true);
+    this.windowManager.getInstance()?.webContents.send('next-tab', true);
   }
 
   previousTab() {
-    this.windowInstance.webContents.send('previous-tab', true);
+    this.windowManager.getInstance()?.webContents.send('previous-tab', true);
   }
 
   reopenClosedTab() {
-    this.windowInstance.webContents.send('reopen-closed-tab', true);
+    this.windowManager
+      .getInstance()
+      ?.webContents.send('reopen-closed-tab', true);
   }
 
   sendRequest() {
-    this.windowInstance.webContents.send('send-request', true);
+    this.windowManager.getInstance()?.webContents.send('send-request', true);
   }
 
   reloadDocs() {
-    this.windowInstance.webContents.send('reload-docs', true);
+    this.windowManager.getInstance()?.webContents.send('reload-docs', true);
   }
 
   showDocs() {
-    this.windowInstance.webContents.send('show-docs', true);
+    this.windowManager.getInstance()?.webContents.send('show-docs', true);
   }
 
   showSettings() {
-    this.windowInstance.webContents.send('show-settings', true);
+    this.windowManager.getInstance()?.webContents.send('show-settings', true);
   }
 
   importAppData() {
-    importBackupData(this.windowInstance);
+    const windowInstance = this.windowManager.getInstance();
+    if (windowInstance) {
+      importBackupData(windowInstance);
+    }
   }
 
   exportAppData() {
-    this.windowInstance.webContents.send('export-app-data', true);
+    this.windowManager.getInstance()?.webContents.send('export-app-data', true);
   }
 
   checkForUpdates(menuItem: MenuItem) {
     return checkForUpdates(menuItem);
   }
 
-  showPreferences() {
+  async showPreferences() {
     const prefWindow = new BrowserWindow({
       width: 600,
       height: 600,
@@ -71,12 +77,19 @@ export class ActionManager {
     });
 
     // and load the index.html of the app.
-    return prefWindow.loadURL(
-      url.format({
-        pathname: path.resolve(getStaticDirectory(), 'settings/index.html'),
-        protocol: 'file:',
-        slashes: true,
-      })
-    );
+    try {
+      return prefWindow.loadURL(
+        url.format({
+          // pathname: path.resolve(
+          //   require.resolve('@altairgraphql/electron-settings')
+          // ),
+          pathname: path.resolve(getDistDirectory(), 'index.html'),
+          protocol: 'file:',
+          slashes: true,
+        })
+      );
+    } catch (err) {
+      console.log('Error loading settings window', err);
+    }
   }
 }

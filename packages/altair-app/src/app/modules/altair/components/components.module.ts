@@ -2,8 +2,6 @@ import { NgModule } from '@angular/core';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 
-import { CodemirrorModule } from '@ctrl/ngx-codemirror';
-
 import { SharedModule } from '../modules/shared/shared.module';
 
 import { PipesModule } from '../pipes';
@@ -17,8 +15,6 @@ import { UrlBoxComponent } from './url-box/url-box.component';
 import { SetVariableDialogComponent } from './set-variable-dialog/set-variable-dialog.component';
 import { ForkRepoComponent } from './fork-repo/fork-repo.component';
 import { WindowSwitcherComponent } from './window-switcher/window-switcher.component';
-import { SubscriptionUrlDialogComponent } from './subscription-url-dialog/subscription-url-dialog.component';
-import { SubscriptionResultItemComponent } from './subscription-result-item/subscription-result-item.component';
 import { HistoryDialogComponent } from './history-dialog/history-dialog.component';
 import { SettingsDialogComponent } from './settings-dialog/settings-dialog.component';
 import { ImportCurlDialogComponent } from './import-curl-dialog/import-curl-dialog.component';
@@ -43,11 +39,22 @@ import { CodemirrorComponent } from './codemirror/codemirror.component';
 import { ConfirmToastComponent } from './confirm-toast/confirm-toast.component';
 import { XInputComponent } from './x-input/x-input.component';
 import { BetaIndicatorComponent } from './beta-indicator/beta-indicator.component';
-import { LoaderComponent } from './loader/loader.component';
 import { TagComponent } from './tag/tag.component';
 import { TeamsDialogComponent } from './teams-dialog/teams-dialog.component';
 import { UpgradeDialogComponent } from './upgrade-dialog/upgrade-dialog.component';
+import { QueryRevisionDialogComponent } from './query-revision-dialog/query-revision-dialog.component';
+import { AuthorizationEditorComponent } from './authorization/authorization-editor/authorization-editor.component';
+import { AuthorizationBearerComponent } from './authorization/authorization-bearer/authorization-bearer.component';
+import { AuthorizationBasicComponent } from './authorization/authorization-basic/authorization-basic.component';
+import { AuthorizationApikeyComponent } from './authorization/authorization-apikey/authorization-apikey.component';
+import { AuthorizationOauth2Component } from './authorization/authorization-oauth2/authorization-oauth2.component';
+import { RequestExtensionsDialogComponent } from './request-extensions-dialog/request-extensions-dialog.component';
+import { RequestHandlerDialogComponent } from './request-handler-dialog/request-handler-dialog.component';
+import { TipsComponent } from './tips/tips.component';
+import { BannerComponent } from './banner/banner.component';
+import { BannerContainerComponent } from './banner-container/banner-container.component';
 
+// const STANDALONE_COMPONENTS = [];
 const COMPONENTS = [
   HeaderComponent,
   QueryEditorComponent,
@@ -56,8 +63,6 @@ const COMPONENTS = [
   SetVariableDialogComponent,
   ForkRepoComponent,
   WindowSwitcherComponent,
-  SubscriptionUrlDialogComponent,
-  SubscriptionResultItemComponent,
   UrlBoxComponent,
   HistoryDialogComponent,
   SettingsDialogComponent,
@@ -82,10 +87,20 @@ const COMPONENTS = [
   ConfirmToastComponent,
   XInputComponent,
   BetaIndicatorComponent,
-  LoaderComponent,
   TagComponent,
   TeamsDialogComponent,
+  QueryRevisionDialogComponent,
   UpgradeDialogComponent,
+  RequestExtensionsDialogComponent,
+  RequestHandlerDialogComponent,
+  TipsComponent,
+  AuthorizationEditorComponent,
+  AuthorizationApikeyComponent,
+  AuthorizationBearerComponent,
+  AuthorizationBasicComponent,
+  AuthorizationOauth2Component,
+  BannerComponent,
+  BannerContainerComponent,
 ];
 
 @NgModule({
@@ -93,11 +108,11 @@ const COMPONENTS = [
     CommonModule,
     FormsModule,
     ReactiveFormsModule,
-    CodemirrorModule,
     PipesModule,
     DirectivesModule,
     SharedModule,
     SchemaFormModule,
+    // ...STANDALONE_COMPONENTS,
   ],
   declarations: COMPONENTS,
   exports: [...COMPONENTS],

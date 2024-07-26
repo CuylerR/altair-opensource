@@ -1,18 +1,15 @@
-import {
-  ICreateTeamDto,
-  ReturnedTeamMembership,
-} from '@altairgraphql/api-utils';
+import { ICreateTeamDto, ReturnedTeamMembership } from '@altairgraphql/api-utils';
 import { Component, EventEmitter, Input, Output } from '@angular/core';
-import {
-  FormControl,
-  NonNullableFormBuilder,
-  Validators,
-} from '@angular/forms';
+import { FormControl, NonNullableFormBuilder, Validators } from '@angular/forms';
 import { Team } from 'altair-graphql-core/build/types/state/account.interfaces';
 import { BehaviorSubject, combineLatest } from 'rxjs';
 import { map, take } from 'rxjs/operators';
 import { AccountService, NotifyService } from '../../services';
 import { debug } from '../../utils/logger';
+import { getApiErrorCode, getErrorResponse } from '../../utils/errors';
+import { Store } from '@ngrx/store';
+import { RootState } from 'altair-graphql-core/build/types/state/state.interfaces';
+import * as windowsMetaActions from '../../store/windows-meta/windows-meta.action';
 
 @Component({
   selector: 'app-teams-dialog',
@@ -66,7 +63,8 @@ export class TeamsDialogComponent {
   constructor(
     private readonly accountService: AccountService,
     private readonly notifyService: NotifyService,
-    private readonly formBuilder: NonNullableFormBuilder
+    private readonly formBuilder: NonNullableFormBuilder,
+    private readonly store: Store<RootState>
   ) {
     this.selectedTeam$.subscribe(async (team) => {
       if (!team) {
@@ -130,6 +128,18 @@ export class TeamsDialogComponent {
 
       this.resetTeamForm();
       this.reloadTeamChange.emit();
+    } catch (err) {
+      const rawError = await getErrorResponse(err);
+      if (
+        ['ERR_MAX_TEAM_MEMBER_COUNT', 'ERR_MAX_TEAM_COUNT'].includes(
+          getApiErrorCode(rawError) ?? ''
+        )
+      ) {
+        this.store.dispatch(
+          new windowsMetaActions.ShowUpgradeDialogAction({ value: true })
+        );
+      }
+      this.notifyService.errorWithError(rawError, 'Could not save team');
     } finally {
       this.loading = false;
     }
@@ -170,17 +180,31 @@ export class TeamsDialogComponent {
 
       if (this.editUserId) {
         // TODO: await this.accountService.updateTeamMember(this.editTeamId, teamDto);
+        this.notifyService.error('Editing team members is not supported yet');
       } else {
         await this.accountService.createTeamMember({
           email: this.memberForm.value.email ?? '',
           teamId: selectedTeamId,
         });
+
+        this.notifyService.success('Team member added');
       }
 
       this.resetMemberForm();
       this.reloadTeamChange.emit();
-    } catch {
-      this.notifyService.error('Could not add team member');
+    } catch (err) {
+      const rawError = await getErrorResponse(err);
+      if (
+        ['ERR_MAX_TEAM_MEMBER_COUNT', 'ERR_MAX_TEAM_COUNT'].includes(
+          getApiErrorCode(rawError) ?? ''
+        )
+      ) {
+        this.store.dispatch(
+          new windowsMetaActions.ShowUpgradeDialogAction({ value: true })
+        );
+      }
+
+      this.notifyService.errorWithError(rawError, 'Could not add team member');
     } finally {
       this.loading = false;
     }

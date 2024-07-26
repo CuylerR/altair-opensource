@@ -1,6 +1,7 @@
 import { take } from 'rxjs/operators';
 import { Injectable, NgZone } from '@angular/core';
 import { Store } from '@ngrx/store';
+import { init } from '@sentry/electron';
 
 import { NotifyService } from '../notify/notify.service';
 
@@ -21,11 +22,14 @@ import { HeaderState } from 'altair-graphql-core/build/types/state/header.interf
 import { IDictionary } from 'altair-graphql-core/build/types/shared';
 import { IQueryCollection } from 'altair-graphql-core/build/types/state/collection.interfaces';
 import { electronAPI } from '@altairgraphql/electron-interop/build/renderer';
+import { environment } from 'environments/environment';
+import { SettingsState } from 'altair-graphql-core/build/types/state/settings.interfaces';
 
 interface ConnectOptions {
   importFileContent: (content: string) => void;
   createNewWindow: () => void;
   closeCurrentWindow: () => void;
+  openUrl: (url: string) => void;
 }
 
 interface BackupDataV1 {
@@ -78,18 +82,25 @@ export class ElectronAppService {
     });
   }
 
-  // TODO: Migrate to use contextBridge instead
   connect({
     importFileContent,
     createNewWindow,
     closeCurrentWindow,
+    openUrl,
   }: ConnectOptions) {
     if (!isElectronApp() || !this.api) {
       return;
     }
 
+    init({
+      release: environment.version,
+    });
+
     this.api.events.onFileOpened((content) => {
       this.zone.run(() => importFileContent(content));
+    });
+    this.api.events.onUrlOpened((url) => {
+      this.zone.run(() => openUrl(url));
     });
 
     this.api.events.onCertificateError(() => {
@@ -146,9 +157,7 @@ export class ElectronAppService {
     this.api.events.onReloadDocs(() => {
       this.zone.run(() =>
         this.store.dispatch(
-          new queryActions.SendIntrospectionQueryRequestAction(
-            this.activeWindowId
-          )
+          new queryActions.SendIntrospectionQueryRequestAction(this.activeWindowId)
         )
       );
     });
@@ -332,5 +341,13 @@ export class ElectronAppService {
     downloadData(await this.generateBackupData(), 'altair_backup', {
       fileType: 'agbkp',
     });
+  }
+
+  getSettingsFromFile() {
+    return this.api?.actions.getAltairAppSettingsFromFile();
+  }
+
+  updateSettingsOnFile(settings: SettingsState) {
+    return this.api?.actions.updateAltairAppSettingsOnFile(settings);
   }
 }

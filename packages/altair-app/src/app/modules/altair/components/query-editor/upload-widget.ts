@@ -24,11 +24,7 @@ export interface UploadActionWidgetOptions {
   variableName: string;
   isMultiple: boolean;
   files: File[];
-  onSelectFiles: (
-    variableName: string,
-    files: File[],
-    isMultiple: boolean
-  ) => void;
+  onSelectFiles: (variableName: string, files: File[], isMultiple: boolean) => void;
 }
 class UploadWidget extends WidgetType {
   constructor(readonly opts: UploadActionWidgetOptions) {
@@ -98,8 +94,7 @@ const uploadActionDecorations = (
   fileVariabless?: FileVariable[]
 ) => {
   const schema = getSchema(view.state);
-  const fileVariables =
-    fileVariabless || getGqlVariables(view.state)?.files || [];
+  const fileVariables = fileVariabless || getGqlVariables(view.state)?.files || [];
   if (!schema) {
     return Decoration.none;
   }
@@ -136,7 +131,7 @@ const uploadActionDecorations = (
           if (
             type &&
             type instanceof GraphQLScalarType &&
-            type.name === 'Upload'
+            ['Upload', 'File'].includes(type.name)
           ) {
             const existingData = fileVariables.find(
               (f) => f.name === cleanedVariableName
@@ -191,10 +186,7 @@ export const getUploadActionPlugin = (
 
       update(update: ViewUpdate) {
         if (update.docChanged || update.viewportChanged)
-          this.decorations = uploadActionDecorations(
-            update.view,
-            onSelectFiles
-          );
+          this.decorations = uploadActionDecorations(update.view, onSelectFiles);
       }
 
       destroy() {
@@ -208,9 +200,7 @@ export const getUploadActionPlugin = (
 };
 
 const gqlVariablesEffect = StateEffect.define<VariableState | undefined>();
-export const gqlVariablesStateField = StateField.define<
-  VariableState | undefined
->({
+export const gqlVariablesStateField = StateField.define<VariableState | undefined>({
   create() {
     return undefined;
   },
@@ -224,10 +214,7 @@ export const gqlVariablesStateField = StateField.define<
     return opts;
   },
 });
-export const updateGqlVariables = (
-  view: EditorView,
-  variables?: VariableState
-) => {
+export const updateGqlVariables = (view: EditorView, variables?: VariableState) => {
   view.dispatch({
     effects: gqlVariablesEffect.of(variables),
   });

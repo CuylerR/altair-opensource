@@ -4,10 +4,7 @@ import {
   IQueryCollection,
 } from 'altair-graphql-core/build/types/state/collection.interfaces';
 import { map } from 'rxjs/operators';
-import {
-  FullQueryCollection,
-  initializeClient,
-} from '@altairgraphql/api-utils';
+import { FullQueryCollection, initializeClient } from '@altairgraphql/api-utils';
 import { AccountService } from '../account/account.service';
 import { CreateDTO } from 'altair-graphql-core/build/types/shared';
 import { TeamId } from 'altair-graphql-core/build/types/state/account.interfaces';
@@ -36,6 +33,15 @@ const serverCollectionToLocalCollection = (
     queries: collection.queries.map(serverQueryToLocalQuery),
     storageType: 'api',
     workspaceId: collection.workspaceId,
+    description: collection.description ?? '',
+    preRequest: {
+      script: collection.preRequestScript ?? '',
+      enabled: collection.preRequestScriptEnabled,
+    },
+    postRequest: {
+      script: collection.postRequestScript ?? '',
+      enabled: collection.postRequestScriptEnabled,
+    },
   };
 };
 @Injectable({
@@ -58,6 +64,11 @@ export class ApiService {
         name: q.windowName,
         content: q,
       })),
+      description: queryCollection.description,
+      preRequestScript: queryCollection.preRequest?.script,
+      preRequestScriptEnabled: queryCollection.preRequest?.enabled,
+      postRequestScript: queryCollection.postRequest?.script,
+      postRequestScriptEnabled: queryCollection.postRequest?.enabled,
     });
   }
 
@@ -69,6 +80,18 @@ export class ApiService {
         ...query,
       },
     });
+  }
+
+  async getQuery(queryServerId: string) {
+    const query = await apiClient.getQuery(queryServerId);
+    if (!query) {
+      return;
+    }
+
+    return {
+      query: serverQueryToLocalQuery(query),
+      collectionId: query.collectionId,
+    };
   }
 
   async updateQuery(queryServerId: string, query: IQuery) {
@@ -84,6 +107,14 @@ export class ApiService {
     return await apiClient.deleteQuery(queryServerId);
   }
 
+  async getQueryRevisions(queryServerId: string) {
+    return await apiClient.getQueryRevisions(queryServerId);
+  }
+
+  async restoreQueryRevision(queryServerId: string, revisionId: string) {
+    return await apiClient.restoreQueryRevision(queryServerId, revisionId);
+  }
+
   async updateCollection(
     collectionServerId: string,
     collection: IQueryCollection,
@@ -91,14 +122,20 @@ export class ApiService {
   ) {
     return await apiClient.updateCollection(collectionServerId, {
       name: collection.title,
+
       queries: collection.queries.map((q) => ({
         name: q.windowName,
         content: {
           ...q,
-          collectionId: q.collectionId || '',
+          collectionId: q.collectionId ?? '',
         },
-        collectionId: q.collectionId || '',
+        collectionId: q.collectionId ?? '',
       })),
+      description: collection.description,
+      preRequestScript: collection.preRequest?.script,
+      preRequestScriptEnabled: collection.preRequest?.enabled,
+      postRequestScript: collection.postRequest?.script,
+      postRequestScriptEnabled: collection.postRequest?.enabled,
     });
   }
 
@@ -130,5 +167,9 @@ export class ApiService {
       })
       // takeUntil(this.accountService.observeSignout())
     );
+  }
+
+  getQueryShareUrl(queryServerId: string) {
+    return apiClient.getQueryShareUrl(queryServerId);
   }
 }

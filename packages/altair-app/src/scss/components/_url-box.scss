@@ -10,14 +10,17 @@ app-url-box {
   // max-width: 900px;
   // margin: 0 auto 5px;
   height: var(--url-box-height);
-  background-color: var(--theme-off-bg-color);
+  // background-color: var(--theme-off-bg-color);
+  background: rgba(var(--rgb-theme-off-bg), 0.5);
   // border-block-end: 1px solid var(--theme-border-color);
   width: 100%;
   display: flex;
-  border: 1px solid var(--theme-border-color);
+  border: 1px solid rgba(var(--rgb-theme-border), 0.3);
   border-radius: 4px;
+  box-shadow: 0 4px 10px rgba(var(--rgb-black), 0.05);
+  transition: all 0.3s ease;
   &:hover {
-    border-color: var(--theme-off-border-color);
+    border-color: rgba(var(--rgb-theme-border), 0.1);
   }
 
   &:focus,
@@ -41,10 +44,11 @@ app-url-box {
   height: calc(var(--url-box-height) - 16px);
   line-height: calc(var(--url-box-height) - 16px);
   font-size: fontsize(12);
-  box-shadow: 0 4px 30px rgba(var(--rgb-black), 0.05);
+  // box-shadow: 0 4px 30px rgba(var(--rgb-black), 0.05);
   padding: 0 8px;
   transition: all 0.3s ease;
-  background-color: var(--theme-off-bg-color);
+  // background-color: var(--theme-off-bg-color);
+  background: transparent;
   width: 100%;
   display: block;
   // padding-right: 150px;
@@ -97,6 +101,11 @@ app-url-box {
 
   &--active {
     color: var(--primary-color);
+  }
+
+  &--disabled {
+    color: var(--theme-font-color);
+    opacity: 0.5;
   }
 
   &:hover {
@@ -169,4 +178,56 @@ app-url-box {
 
 .connection-indicator--uncertain {
   color: var(--orange-color);
+}
+
+// https://www.youtube.com/watch?v=rdtTCVzTwSQ
+.url-box__loader {
+  position: relative;
+}
+.url-box__loader-inner {
+  position: absolute;
+  width: 100%;
+  height: 3px;
+  background: white;
+  -webkit-box-reflect: below 1px linear-gradient(transparent, rgba(0, 0, 0, 0.2));
+  // FIXME: would be nice to have the gradient mask here to taper the ends for a nicer effect,
+  // but applying mask-image also masks off the other effects (blur, reflection)
+  // since they appear outside the bounds of the element
+  // mask-image: linear-gradient(
+  //   to right,
+  //   transparent 0%,
+  //   black 5%,
+  //   black 95%,
+  //   transparent 100%
+  // );
+}
+.url-box__loader-inner::before,
+.url-box__loader-inner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    var(--primary-color),
+    var(--secondary-color),
+    var(--tertiary-color),
+    var(--primary-color),
+    var(--secondary-color),
+    var(--tertiary-color),
+    /*end with the first color*/ var(--primary-color)
+  );
+  animation: loader 20s linear infinite;
+  background-size: 500%;
+}
+.url-box__loader-inner::after {
+  filter: blur(5px);
+}
+
+@keyframes loader {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 500% 0;
+  }
 }

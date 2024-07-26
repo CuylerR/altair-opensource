@@ -1,6 +1,7 @@
 <nz-modal
   [nzVisible]="showDialog"
   (nzVisibleChange)="toggleDialogChange.next($event)"
+  [nzCloseIcon]="'close-circle'"
   [nzTitle]="modalTitle"
   [nzContent]="modalContent"
   [nzFooter]="modalFooter"
@@ -16,17 +17,15 @@
   <ng-template #modalContent>
     <div class="app-dialog-body">
       <div class="history-container">
-        <div
-          class="history-item"
-          *ngFor="
-            let item of historyList;
-            let index = index;
-            trackBy: trackByIndex
-          "
-          (click)="restoreHistory(index)"
-        >
-          {{ item.query }}
-        </div>
+        @for (
+          item of historyList;
+          track trackByIndex(index, item);
+          let index = $index
+        ) {
+          <div class="history-item" (click)="restoreHistory(index)">
+            {{ item.query }}
+          </div>
+        }
       </div>
     </div>
   </ng-template>
@@ -34,14 +33,14 @@
   <ng-template #modalFooter>
     <div class="app-dialog-footer">
       <button
-        class="app-button active-primary right"
+        class="btn btn--primary right"
         track-id="close_history_dialog"
         (click)="toggleDialogChange.next($event)"
       >
         {{ 'DONE_BUTTON' | translate }}
       </button>
       <button
-        class="app-button active-secondary left"
+        class="btn left"
         track-id="clear_history_items"
         (click)="clearHistory()"
       >

@@ -18,6 +18,7 @@ EmptyError is thrown by the `first` pipe if the source observable is closed befo
 Fix: Use `take(1)` instead of `first()`.
 
 ### Multiple actions/requests, only one is going through
+
 In the ngrx effects, use `mergeMap` instead of `switchMap`
 
 ### Firebase: The caller does not have permission
@@ -95,13 +96,51 @@ docker run -p 3000:3000 test-demo
 
 If using Cloudflare DNS, you need to setup full SSL mode instead of flexible mode
 
-### Stripe product requirements
+### Stripe (altair subscription) product requirements
 
 - Always create plan config in the database first
 - Product should have `role` metadata that corresponds to `PlanConfig` id in the database
+- Product should have `type` metadata set to `plan`
 - Product should have recurring pricing
+
+### Stripe credit product requirements
+
+- Create a product with `type` metadata set to `credit`
 
 <!-- background:linear-gradient(135deg,#00F5A0 0%,#00D9F5 100%); -->
 
 ### Signing MacOS app
+
 https://www.codiga.io/blog/notarize-sign-electron-app/
+
+### Updating angular
+
+- Temporarily replace all local packages with their `file:` protocol versions (so that yarn doesn't fail while searching registry for them)
+- Run the update command e.g. `yarn ng update @angular/core@16 @angular/cli@16 --allow-dirty --force`
+- Run migrate only commands if not completely successful
+  - `yarn ng update @angular/core --allow-dirty --force --migrate-only --from=15 --to=16`
+  - `yarn ng update @angular/cli --allow-dirty --force --migrate-only --from=15 --to=16`
+
+### Stripe listen throwing api_key_expired error
+
+Login to stripe CLI using `stripe login` and it should work again
+
+### Running `prisma migrate dev` wants to wipe all data
+
+- Backup the data before running the command.
+- Remove all database and table creation commands from the backup file.
+- Run the migration command.
+- Restore it after the command.
+  - Run the restore command multiple times if it fails due to foreign key constraints, until all foreign key constraints are replaced with duplicate key value errors.
+
+```bash
+env $(cat .env | xargs) pg_dump --dbname=altairgraphql-db --port=5432 --host=localhost --username=my_db_user > data.sql
+
+yarn prisma migrate dev
+
+psql --file=data.sql --dbname=altairgraphql-db --port=5432 --host=localhost --username=my_db_user
+```
+
+## Tips
+
+- add `&pgbouncer=true` to your connection url in order to enable pgbouncer mode in Prisma

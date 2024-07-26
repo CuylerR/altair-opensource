@@ -1,5 +1,4 @@
 import {
-  first,
   distinctUntilChanged,
   map,
   filter,
@@ -8,28 +7,22 @@ import {
   timeout,
   catchError,
 } from 'rxjs/operators';
-import { Component, ViewChild } from '@angular/core';
+import { Component } from '@angular/core';
 import { Store, select } from '@ngrx/store';
-import { Observable, Subject, forkJoin, of, from } from 'rxjs';
+import { Observable, forkJoin, of, from, firstValueFrom } from 'rxjs';
 import { TranslateService } from '@ngx-translate/core';
 
 import { v4 as uuid } from 'uuid';
 
 import * as fromRoot from '../../store';
-import * as fromCollection from '../../store/collection/collection.reducer';
-import * as fromWindowsMeta from '../../store/windows-meta/windows-meta.reducer';
-import * as fromEnvironments from '../../store/environments/environments.reducer';
-import * as fromWindows from '../../store/windows/windows.reducer';
 
 import * as queryActions from '../../store/query/query.action';
 import * as dialogsActions from '../../store/dialogs/dialogs.action';
 import * as layoutActions from '../../store/layout/layout.action';
-import * as docsActions from '../../store/docs/docs.action';
 import * as windowsActions from '../../store/windows/windows.action';
 import * as windowsMetaActions from '../../store/windows-meta/windows-meta.action';
 import * as settingsActions from '../../store/settings/settings.action';
 import * as donationActions from '../../store/donation/donation.action';
-import * as windowActions from '../../store/windows/windows.action';
 import * as collectionActions from '../../store/collection/collection.action';
 import * as collectionsMetaActions from '../../store/collections-meta/collections-meta.action';
 import * as environmentsActions from '../../store/environments/environments.action';
@@ -46,6 +39,12 @@ import {
   PluginRegistryService,
   QueryCollectionService,
   ThemeRegistryService,
+  SharingService,
+  FilesService,
+  EnvironmentService,
+  NotifyService,
+  BannerService,
+  DbService,
 } from '../../services';
 
 import isElectron from 'altair-graphql-core/build/utils/is_electron';
@@ -69,23 +68,17 @@ import { RootState } from 'altair-graphql-core/build/types/state/state.interface
 import { AltairConfig } from 'altair-graphql-core/build/config';
 import { WindowState } from 'altair-graphql-core/build/types/state/window.interfaces';
 import { AltairPanel } from 'altair-graphql-core/build/plugin/panel';
-import {
-  externalLink,
-  isExtension,
-  mapToKeyValueList,
-  openFile,
-} from '../../utils';
+import { externalLink, mapToKeyValueList, openFiles } from '../../utils';
 import { AccountState } from 'altair-graphql-core/build/types/state/account.interfaces';
 import { catchUselessObservableError } from '../../utils/errors';
 import { PerWindowState } from 'altair-graphql-core/build/types/state/per-window.interfaces';
 import {
-  Workspace,
   WorkspaceId,
   WORKSPACES,
 } from 'altair-graphql-core/build/types/state/workspace.interface';
 import { getWorkspaces, WorkspaceOption } from '../../store';
 import { CollectionsMetaState } from 'altair-graphql-core/build/types/state/collections-meta.interfaces';
-import { apiClient } from '../../services/api/api.service';
+import { QueryItemRevision } from '@altairgraphql/db';
 
 @UntilDestroy({ checkProperties: true })
 @Component({
@@ -103,6 +96,7 @@ export class AltairComponent {
   activeEnvironment$: Observable<EnvironmentState | undefined>;
   theme$: Observable<ICustomTheme | undefined>;
   themeDark$: Observable<ICustomTheme | undefined>;
+  accentColor$: Observable<string | undefined>;
   account$: Observable<AccountState>;
   workspaces$: Observable<WorkspaceOption[]>;
   activeWindow$: Observable<PerWindowState | undefined>;
@@ -121,6 +115,7 @@ export class AltairComponent {
   showImportCurlDialog = false;
   showEditCollectionDialog = false;
   showCollections = false;
+  queryRevisionQueryId = '';
 
   appVersion = environment.version;
 
@@ -138,6 +133,12 @@ export class AltairComponent {
     private pluginEvent: PluginEventService,
     private collectionService: QueryCollectionService,
     private themeRegistry: ThemeRegistryService,
+    private sharingService: SharingService,
+    private filesService: FilesService,
+    private environmentService: EnvironmentService,
+    private notifyService: NotifyService,
+    private bannerService: BannerService,
+    private dbService: DbService,
     private altairConfig: AltairConfig
   ) {
     this.isWebApp = altairConfig.isWebApp;
@@ -237,20 +238,11 @@ export class AltairComponent {
         return state.windows[state.windowsMeta.activeWindowId];
       })
     );
-    this.sortedCollections$ = this.store.select(
-      fromRoot.selectSortedCollections
+    this.sortedCollections$ = this.store.select(fromRoot.selectSortedCollections);
+    this.activeEnvironment$ = this.store.select(
+      fromRoot.getActiveSubEnvironmentState
     );
-    this.activeEnvironment$ = this.environments$.pipe(
-      map((environments) => {
-        if (environments.activeSubEnvironment) {
-          return environments.subEnvironments.find(
-            (subEnvironment) =>
-              subEnvironment.id === environments.activeSubEnvironment
-          );
-        }
-        return;
-      })
-    );
+    this.accentColor$ = this.store.select(fromRoot.getEnvironmentAccentColor);
     this.sidebarPanels$ = this.store.select(fromRoot.getSidebarPanels);
     this.headerPanels$ = this.store.select(fromRoot.getHeaderPanels);
 
@@ -258,7 +250,6 @@ export class AltairComponent {
     this.setAvailableLanguages();
 
     const applicationLanguage = this.getAppLanguage();
-    // TODO: Replace since it is deprecated
     forkJoin([
       this.translate.use(applicationLanguage),
       this.store.pipe(
@@ -283,7 +274,7 @@ export class AltairComponent {
         }),
         // Only wait 7 seconds for plugins to be ready
         timeout(7000),
-        catchError((error) => of('Plugins were not ready on time!'))
+        catchError((_error) => of('Plugins were not ready on time!'))
       ),
     ])
       .pipe(untilDestroyed(this))
@@ -306,14 +297,19 @@ export class AltairComponent {
       });
 
     this.electronApp.connect({
-      importFileContent: (content) =>
-        this.windowService.importStringData(content),
+      importFileContent: (content) => {
+        return this.windowService.importStringData(content).catch((err) => {
+          debug.error(err);
+          this.notifyService.errorWithError(err, 'Error importing file content');
+        });
+      },
       createNewWindow: () => this.newWindow(),
       closeCurrentWindow: () => {
         if (this.windowIds.length > 1) {
           this.removeWindow(this.activeWindowId);
         }
       },
+      openUrl: (url) => this.sharingService.checkForShareUrl(url),
     });
     this.keybinder.connect();
 
@@ -369,37 +365,45 @@ export class AltairComponent {
     if (!this.windowIds.length) {
       if (altairConfig.initialData.windows.length) {
         altairConfig.initialData.windows.forEach((windowOption) => {
-          windowService.importWindowData(
-            {
-              version: 1,
-              windowName: windowOption.initialName || '',
-              type: 'window',
-              apiUrl: windowOption.endpointURL || '',
-              headers: windowOption.initialHeaders
-                ? mapToKeyValueList(windowOption.initialHeaders)
-                : [],
-              query: windowOption.initialQuery || '',
-              subscriptionUrl: windowOption.subscriptionsEndpoint || '',
-              variables: windowOption.initialVariables || '',
-              postRequestScript: windowOption.initialPostRequestScript,
-              postRequestScriptEnabled: !!windowOption.initialPostRequestScript,
-              preRequestScript: windowOption.initialPreRequestScript,
-              preRequestScriptEnabled: !!windowOption.initialPreRequestScript,
-              subscriptionConnectionParams:
-                windowOption.initialSubscriptionsPayload
-                  ? JSON.stringify(windowOption.initialSubscriptionsPayload)
-                  : '',
-              subscriptionProvider: windowOption.initialSubscriptionsProvider,
-            },
-            {
-              fixedTitle: true,
-            }
-          );
+          windowService
+            .importWindowData(
+              {
+                version: 1,
+                windowName: windowOption.initialName ?? '',
+                type: 'window',
+                apiUrl: windowOption.endpointURL ?? '',
+                headers: windowOption.initialHeaders
+                  ? mapToKeyValueList(windowOption.initialHeaders)
+                  : [],
+                query: windowOption.initialQuery ?? '',
+                subscriptionUrl: windowOption.subscriptionsEndpoint ?? '',
+                variables: windowOption.initialVariables ?? '',
+                postRequestScript: windowOption.initialPostRequestScript,
+                postRequestScriptEnabled: !!windowOption.initialPostRequestScript,
+                preRequestScript: windowOption.initialPreRequestScript,
+                preRequestScriptEnabled: !!windowOption.initialPreRequestScript,
+                subscriptionConnectionParams:
+                  windowOption.initialSubscriptionsPayload
+                    ? JSON.stringify(windowOption.initialSubscriptionsPayload)
+                    : '',
+                subscriptionRequestHandlerId:
+                  windowOption.initialSubscriptionRequestHandlerId,
+              },
+              {
+                fixedTitle: true,
+              }
+            )
+            .catch((err) => {
+              debug.error(err);
+              this.notifyService.errorWithError(err, 'Error importing window data');
+            });
         });
       } else {
         this.newWindow();
       }
     }
+
+    this.showcaseAiPlugin();
   }
 
   /**
@@ -433,7 +437,7 @@ export class AltairComponent {
     const defaultLanguage = this.translate.getDefaultLang();
     const clientLanguage = this.translate.getBrowserLang();
     const isClientLanguageAvailable =
-      this.checkLanguageAvailability(clientLanguage);
+      clientLanguage && this.checkLanguageAvailability(clientLanguage);
 
     return isClientLanguageAvailable && !this.altairConfig.isTranslateMode
       ? clientLanguage
@@ -458,20 +462,20 @@ export class AltairComponent {
   }
 
   setActiveWindow(windowId: string) {
-    this.store.dispatch(
-      new windowsMetaActions.SetActiveWindowIdAction({ windowId })
-    );
+    this.windowService.setActiveWindow(windowId);
   }
 
   removeWindow(windowId: string) {
-    this.windowService
-      .removeWindow(windowId)
-      .pipe(untilDestroyed(this), catchUselessObservableError)
-      .subscribe();
+    if (this.windowIds.length > 1) {
+      this.windowService
+        .removeWindow(windowId)
+        .pipe(untilDestroyed(this), catchUselessObservableError)
+        .subscribe();
+    }
   }
 
   duplicateWindow(windowId: string) {
-    this.windowService.duplicateWindow(windowId);
+    this.windowService.duplicateWindow(windowId).subscribe();
   }
 
   setWindowName({ windowId = '', windowName = '' }) {
@@ -499,7 +503,7 @@ export class AltairComponent {
   }
 
   reopenClosedWindow() {
-    this.store.dispatch(new windowActions.ReopenClosedWindowAction());
+    this.store.dispatch(new windowsActions.ReopenClosedWindowAction());
   }
 
   exportBackupData() {
@@ -515,9 +519,7 @@ export class AltairComponent {
   }
 
   importWindowFromCurl(data: string) {
-    this.store.dispatch(
-      new windowsActions.ImportWindowFromCurlAction({ data })
-    );
+    this.store.dispatch(new windowsActions.ImportWindowFromCurlAction({ data }));
   }
 
   showSettingsDialog() {
@@ -545,21 +547,15 @@ export class AltairComponent {
   }
 
   prettifyCode() {
-    this.store.dispatch(
-      new queryActions.PrettifyQueryAction(this.activeWindowId)
-    );
+    this.store.dispatch(new queryActions.PrettifyQueryAction(this.activeWindowId));
   }
 
   compressQuery() {
-    this.store.dispatch(
-      new queryActions.CompressQueryAction(this.activeWindowId)
-    );
+    this.store.dispatch(new queryActions.CompressQueryAction(this.activeWindowId));
   }
 
   clearEditor() {
-    this.store.dispatch(
-      new queryActions.SetQueryAction(``, this.activeWindowId)
-    );
+    this.store.dispatch(new queryActions.SetQueryAction(``, this.activeWindowId));
   }
 
   copyAsCurl() {
@@ -573,9 +569,7 @@ export class AltairComponent {
   }
 
   refactorQuery() {
-    this.store.dispatch(
-      new queryActions.RefactorQueryAction(this.activeWindowId)
-    );
+    this.store.dispatch(new queryActions.RefactorQueryAction(this.activeWindowId));
   }
 
   toggleHeader(isOpen: boolean) {
@@ -590,15 +584,25 @@ export class AltairComponent {
     );
   }
 
-  toggleSubscriptionUrlDialog(isOpen: boolean) {
+  toggleRequestHandlerDialog(isOpen: boolean) {
     this.store.dispatch(
-      new dialogsActions.ToggleSubscriptionUrlDialogAction(this.activeWindowId)
+      new dialogsActions.ToggleRequestHandlerDialogAction(this.activeWindowId, {
+        value: isOpen,
+      })
     );
   }
 
   toggleHistoryDialog(isOpen: boolean) {
     this.store.dispatch(
       new dialogsActions.ToggleHistoryDialogAction(this.activeWindowId)
+    );
+  }
+
+  toggleRequestExtensionsDialog(show: boolean) {
+    this.store.dispatch(
+      new dialogsActions.ToggleRequestExtensionsDialogAction(this.activeWindowId, {
+        value: show,
+      })
     );
   }
 
@@ -642,9 +646,7 @@ export class AltairComponent {
     );
   }
   deleteSubEnvironment(opts: { id: string }) {
-    this.store.dispatch(
-      new environmentsActions.DeleteSubEnvironmentAction(opts)
-    );
+    this.store.dispatch(new environmentsActions.DeleteSubEnvironmentAction(opts));
     this.selectActiveEnvironment();
   }
   selectActiveEnvironment(id?: string) {
@@ -666,6 +668,22 @@ export class AltairComponent {
       })
     );
   }
+  async importEnvironmentData() {
+    const data = await openFiles({ accept: '.agx' });
+
+    return data.map((content) => {
+      this.environmentService.importEnvironmentData(JSON.parse(content));
+    });
+  }
+  async exportEnvironment(environment: EnvironmentState) {
+    if (
+      await this.notifyService.confirm(
+        'Reminder: Your environment data may contain sensitive information. Are you sure you want to export it?'
+      )
+    ) {
+      this.environmentService.exportEnvironmentData(environment);
+    }
+  }
 
   toggleCollections() {
     this.showCollections = !this.showCollections;
@@ -684,22 +702,15 @@ export class AltairComponent {
     collectionId: string;
     windowIdInCollection: string;
   }) {
-    const matchingOpenQueryWindowId = Object.keys(this.windows).find(
-      (windowId) => {
-        return (
-          this.windows[windowId]?.layout.windowIdInCollection ===
-          windowIdInCollection
+    this.windowService
+      .loadQueryFromCollection(query, collectionId, windowIdInCollection)
+      .catch((err) => {
+        debug.error(err);
+        this.notifyService.errorWithError(
+          err,
+          'Error loading query from collection'
         );
-      }
-    );
-    if (matchingOpenQueryWindowId) {
-      this.setActiveWindow(matchingOpenQueryWindowId);
-      return;
-    }
-    this.windowService.importWindowData(
-      { ...query, collectionId, windowIdInCollection },
-      { fixedTitle: true }
-    );
+      });
   }
 
   deleteQueryFromCollection({
@@ -734,16 +745,10 @@ export class AltairComponent {
   }
 
   syncCollections() {
-    this.store.dispatch(
-      new collectionActions.SyncRemoteCollectionsToLocalAction()
-    );
+    this.store.dispatch(new collectionActions.SyncRemoteCollectionsToLocalAction());
   }
 
-  syncLocalCollectionToRemote({
-    collection,
-  }: {
-    collection: IQueryCollection;
-  }) {
+  syncLocalCollectionToRemote({ collection }: { collection: IQueryCollection }) {
     this.store.dispatch(
       new collectionActions.SyncLocalCollectionToRemoteAction({ collection })
     );
@@ -773,22 +778,28 @@ export class AltairComponent {
     );
   }
 
+  showQueryRevisions(queryId: string) {
+    this.queryRevisionQueryId = queryId;
+  }
+
+  copyQueryShareLink(queryServerId: string) {
+    this.sharingService.copyQueryShareUrl(queryServerId);
+  }
+
+  restoreQueryRevision(revision: QueryItemRevision) {
+    this.store.dispatch(new queryActions.RestoreQueryRevisionAction(revision));
+  }
+
   setShowAccountDialog(value: boolean) {
-    this.store.dispatch(
-      new windowsMetaActions.ShowAccountDialogAction({ value })
-    );
+    this.store.dispatch(new windowsMetaActions.ShowAccountDialogAction({ value }));
   }
 
   setShowTeamsDialog(value: boolean) {
-    this.store.dispatch(
-      new windowsMetaActions.ShowTeamsDialogAction({ value })
-    );
+    this.store.dispatch(new windowsMetaActions.ShowTeamsDialogAction({ value }));
   }
 
   setShowUpgradeDialog(value: boolean) {
-    this.store.dispatch(
-      new windowsMetaActions.ShowUpgradeDialogAction({ value })
-    );
+    this.store.dispatch(new windowsMetaActions.ShowUpgradeDialogAction({ value }));
   }
 
   loadTeams() {
@@ -865,24 +876,50 @@ export class AltairComponent {
   }
 
   async fileDropped(files: FileList) {
-    if (files && files.length) {
-      try {
-        // Handle window import
-        await this.windowService.handleImportedFile(files);
-      } catch (error) {
-        debug.log(error);
-        try {
-          // Handle collection import
-          await this.collectionService.handleImportedFile(files);
-        } catch (collectionError) {
-          debug.log(collectionError);
-        }
-      }
+    const file = files[0];
+    if (!file) {
+      debug.log('No file specified.');
+      return;
     }
+
+    await this.filesService.handleImportedFile(file);
   }
 
   hideDonationAlert() {
     this.store.dispatch(new donationActions.HideDonationAlertAction());
+  }
+
+  async showcaseAiPlugin() {
+    const isAiPluginInstalled = await this.pluginRegistry.isPluginInSettings(
+      'altair-graphql-plugin-ai'
+    );
+    if (isAiPluginInstalled) {
+      return;
+    }
+    const aiPluginShowcased = await firstValueFrom(
+      this.dbService.getItem('ai-plugin-showcased')
+    );
+    if (aiPluginShowcased) {
+      return;
+    }
+    this.bannerService.addBanner('install-ai-plugin', {
+      message: 'Get Altair AI Assistant today to supercharge your GraphQL workflow!',
+      dismissible: true,
+      type: 'info',
+      icon: 'sparkles',
+      onDismiss: () => {
+        this.dbService.setItem('ai-plugin-showcased', true);
+      },
+      actions: [
+        {
+          label: 'Try Altair AI',
+          handler: () => {
+            this.pluginRegistry.addPluginToSettings('altair-graphql-plugin-ai');
+            this.bannerService.removeBanner('install-ai-plugin');
+          },
+        },
+      ],
+    });
   }
 
   openDonationPage(e: Event) {
@@ -898,7 +935,7 @@ export class AltairComponent {
     );
   }
 
-  trackById<T extends { id: unknown }>(index: number, item: T) {
+  trackById<T extends { id: unknown }>(_index: number, item: T) {
     return item.id;
   }
 }

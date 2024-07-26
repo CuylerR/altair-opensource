@@ -6,6 +6,7 @@ import mime from 'mime-types';
 import windowStateKeeper from 'electron-window-state';
 
 import {
+  RenderOptions,
   getDistDirectory,
   renderAltair,
   renderInitialOptions,
@@ -19,24 +20,30 @@ import {
   initUpdateAvailableEvent,
 } from '../settings/main/events';
 
-import { ElectronApp } from './index';
 import { MenuManager } from './menu';
 import { ActionManager } from './actions';
 import { TouchbarManager } from './touchbar';
 import { handleWithCustomErrors } from '../utils/index';
 import { AuthServer } from '../auth/server/index';
-import ElectronStore from 'electron-store';
 import { getAutobackup, setAutobackup } from '../utils/backup';
-import { IPC_EVENT_NAMES } from '@altairgraphql/electron-interop';
+import {
+  IPC_EVENT_NAMES,
+  ELECTRON_ALLOWED_FORBIDDEN_HEADERS,
+  ALTAIR_CUSTOM_PROTOCOL,
+  SETTINGS_STORE_EVENTS,
+} from '@altairgraphql/electron-interop';
+import { HeaderState } from 'altair-graphql-core/build/types/state/header.interfaces';
+import validateAppSettings from 'altair-graphql-core/build/validate-settings';
 import { log } from '../utils/log';
-
-// https://developer.mozilla.org/en-US/docs/Glossary/Forbidden_header_name
-const HEADERS_TO_SET = ['Origin', 'Cookie', 'Referer'].map(_ =>
-  _.toLowerCase()
-);
+import { ElectronApp } from './index';
+import {
+  getAltairSettingsFromFile,
+  getPersisedSettingsFromFile,
+  updateAltairSettingsOnFile,
+} from '../settings/main/store';
 
 export class WindowManager {
-  instance?: BrowserWindow;
+  private instance?: BrowserWindow;
 
   mainWindowState?: windowStateKeeper.State;
 
@@ -48,13 +55,23 @@ export class WindowManager {
 
   touchbarManager?: TouchbarManager;
 
+  private ipcEventsInitialized = false;
+  private sessionEventsInitialized = false;
+
+  private rendererReady = new Promise((resolve) => {
+    ipcMain.once(IPC_EVENT_NAMES.RENDERER_READY, () => {
+      resolve(true);
+    });
+  });
+
   constructor(private electronApp: ElectronApp) {}
 
   getInstance() {
     return this.instance;
   }
 
-  createWindow() {
+  async createWindow() {
+    await app.whenReady();
     this.registerProtocol();
 
     // Load the previous state with fallback to defaults
@@ -82,9 +99,7 @@ export class WindowManager {
         nodeIntegrationInWorker: false,
         contextIsolation: true,
         // enableRemoteModule: process.env.NODE_ENV === "test", // remote required for spectron tests to work
-        preload: require.resolve(
-          '@altairgraphql/electron-interop/build/preload.js'
-        ), // path.join(__dirname, '../preload', 'index.js'),
+        preload: require.resolve('@altairgraphql/electron-interop/build/preload.js'), // path.join(__dirname, '../preload', 'index.js'),
         sandbox: false,
       },
       // titleBarStyle: 'hidden-inset'
@@ -96,7 +111,7 @@ export class WindowManager {
     this.mainWindowState.manage(this.instance);
 
     // Populate the application menu
-    this.actionManager = new ActionManager(this.instance);
+    this.actionManager = new ActionManager(this);
     this.menuManager = new MenuManager(this.actionManager);
     // Set the touchbar
     this.touchbarManager = new TouchbarManager(this.actionManager);
@@ -106,31 +121,222 @@ export class WindowManager {
     this.instance.loadURL(
       url.format({
         pathname: '-',
-        protocol: 'altair:',
+        protocol: `${ALTAIR_CUSTOM_PROTOCOL}:`,
         slashes: true,
       })
     );
-    // instance.loadURL('http://localhost:4200/');
 
     this.manageEvents();
   }
 
-  manageEvents() {
+  sendMessage(channel: string, ...args: unknown[]) {
+    // Listen for the renderer ready event,
+    // then perform any pending actions
+    this.rendererReady.then(() => {
+      const instance = this.getInstance();
+
+      if (instance) {
+        instance.webContents.send(channel, ...args);
+      }
+    });
+  }
+
+  private manageEvents() {
+    initMainProcessStoreEvents();
+    initSettingsStoreEvents();
+    this.initInstanceEvents();
+    this.initSessionEvents();
+    this.initIpcEvents();
+  }
+
+  private initIpcEvents() {
+    // ipcMain events should only be initialized once
+    if (this.ipcEventsInitialized) {
+      return;
+    }
+    this.ipcEventsInitialized = true;
+
+    ipcMain.on(IPC_EVENT_NAMES.RENDERER_RESTART_APP, () => {
+      app.relaunch();
+      app.exit();
+    });
+
+    // Get 'set headers' instruction from app
+    ipcMain.on(
+      IPC_EVENT_NAMES.RENDERER_SET_HEADERS_SYNC,
+      (e, headers: HeaderState) => {
+        this.requestHeaders = {};
+
+        headers.forEach((header) => {
+          const normalizedKey = header.key.toLowerCase();
+          if (
+            ELECTRON_ALLOWED_FORBIDDEN_HEADERS.includes(normalizedKey) &&
+            header.key &&
+            header.value &&
+            header.enabled
+          ) {
+            this.requestHeaders[normalizedKey] = header.value;
+          }
+        });
+
+        e.returnValue = true;
+      }
+    );
+
+    ipcMain.handle('reload-window', (e) => {
+      e.sender.reload();
+    });
+
+    ipcMain.on(IPC_EVENT_NAMES.RENDERER_SAVE_AUTOBACKUP_DATA, (e, data: string) => {
+      setAutobackup(data);
+    });
+
+    handleWithCustomErrors(IPC_EVENT_NAMES.RENDERER_GET_AUTH_TOKEN, async (e) => {
+      if (!e.sender || e.sender !== this.instance?.webContents) {
+        throw new Error('untrusted source trying to get auth token');
+      }
+
+      const authServer = new AuthServer();
+      return authServer.getCustomToken();
+    });
+
+    handleWithCustomErrors(
+      IPC_EVENT_NAMES.RENDERER_GET_AUTOBACKUP_DATA,
+      async (e) => {
+        if (!e.sender || e.sender !== this.instance?.webContents) {
+          throw new Error('untrusted source');
+        }
+
+        return getAutobackup();
+      }
+    );
+
+    handleWithCustomErrors(
+      SETTINGS_STORE_EVENTS.GET_ALTAIR_APP_SETTINGS,
+      async (e) => {
+        if (!e.sender || e.sender !== this.instance?.webContents) {
+          throw new Error('untrusted source');
+        }
+
+        return getAltairSettingsFromFile();
+      }
+    );
+
+    handleWithCustomErrors(
+      SETTINGS_STORE_EVENTS.SET_ALTAIR_APP_SETTINGS,
+      async (e, data) => {
+        if (!e.sender || e.sender !== this.instance?.webContents) {
+          throw new Error('untrusted source');
+        }
+
+        // Validate data is a SettingsState
+        if (validateAppSettings(data)) {
+          return updateAltairSettingsOnFile(data);
+        }
+        console.error('Invalid settings data, not saving to file', data);
+      }
+    );
+  }
+
+  private initSessionEvents() {
+    // session events should only be initialized once
+    if (this.sessionEventsInitialized) {
+      return;
+    }
+    this.sessionEventsInitialized = true;
+
+    if (process.env.NODE_ENV /* === 'test'*/) {
+      session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+        log('Before request:', details);
+        if (details.uploadData) {
+          details.uploadData.forEach((uploadData) => {
+            log('Data sent:', uploadData.bytes.toString());
+          });
+        }
+        callback({
+          cancel: false,
+        });
+      });
+    }
+    session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      // Set defaults
+      details.requestHeaders.Origin = 'electron://altair';
+
+      // log(this.requestHeaders);
+      // log('sending headers', details.requestHeaders);
+      // Set the request headers
+      Object.entries(this.requestHeaders).forEach(([key, header]) => {
+        details.requestHeaders[key] = header;
+      });
+      callback({
+        cancel: false,
+        requestHeaders: details.requestHeaders,
+      });
+    });
+
+    if (process.env.NODE_ENV /* === 'test'*/) {
+      session.defaultSession.webRequest.onSendHeaders((details) => {
+        if (details.requestHeaders) {
+          Object.keys(details.requestHeaders).forEach((headerKey) => {
+            log('Header sent:', headerKey, details.requestHeaders[headerKey]);
+          });
+        }
+      });
+    }
+
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      try {
+        const u = new url.URL(details.url);
+        // we only want to set the CSP for the altair custom protocol
+        if (u.protocol !== ALTAIR_CUSTOM_PROTOCOL + ':') {
+          return callback({ responseHeaders: details.responseHeaders });
+        }
+
+        if (u.pathname.includes('/iframe-sandbox')) {
+          return callback({ responseHeaders: details.responseHeaders });
+        }
+      } catch {}
+      if (
+        details.resourceType === 'mainFrame' ||
+        details.resourceType === 'subFrame'
+      ) {
+        // Set the CSP
+        const scriptSrc = [
+          `'self'`,
+          `'sha256-1Sj1x3xsk3UVwnakQHbO0yQ3Xm904avQIfGThrdrjcc='`,
+          `'${createSha256CspHash(renderInitialOptions(this.getRenderOptions()))}'`,
+          `https://cdn.jsdelivr.net`,
+          `https://apis.google.com`,
+          `localhost:*`,
+          `file:`,
+        ];
+
+        return callback({
+          responseHeaders: {
+            ...details.responseHeaders, // Setting CSP
+            // TODO: Figure out why an error from this breaks devtools
+            'Content-Security-Policy': [
+              `script-src ${scriptSrc.join(' ')}; object-src 'self';`,
+              // `script-src 'self' 'sha256-1Sj1x3xsk3UVwnakQHbO0yQ3Xm904avQIfGThrdrjcc=' '${createSha256CspHash(renderInitialOptions())}' https://cdn.jsdelivr.net localhost:*; object-src 'self';`
+            ],
+          },
+        });
+      }
+
+      callback({ responseHeaders: details.responseHeaders });
+    });
+  }
+
+  private initInstanceEvents() {
     if (!this.instance) {
       throw new Error(
         'Instance must be initialized before attempting to manage events'
       );
     }
 
-    initMainProcessStoreEvents();
-    initSettingsStoreEvents();
     initUpdateAvailableEvent(this.instance.webContents);
     // Prevent the app from navigating away from the app
-    this.instance.webContents.on('will-navigate', e => e.preventDefault());
-
-    // instance.webContents.once('dom-ready', () => {
-    //   instance.webContents.openDevTools();
-    // });
+    this.instance.webContents.on('will-navigate', (e) => e.preventDefault());
 
     // Emitted when the window is closed.
     this.instance.on('closed', () => {
@@ -148,174 +354,23 @@ export class WindowManager {
       this.instance.focus();
       checkMultipleDataVersions(this.instance);
     });
-
-    if (process.env.NODE_ENV /* === 'test'*/) {
-      session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-        log('Before request:', details);
-        if (details.uploadData) {
-          details.uploadData.forEach(uploadData => {
-            log('Data sent:', uploadData.bytes.toString());
-          });
-        }
-        callback({
-          cancel: false,
-        });
-      });
-    }
-    session.defaultSession.webRequest.onBeforeSendHeaders(
-      (details, callback) => {
-        // Set defaults
-        details.requestHeaders.Origin = 'electron://altair';
-
-        // log(this.requestHeaders);
-        // log('sending headers', details.requestHeaders);
-        // Set the request headers
-        Object.entries(this.requestHeaders).forEach(([key, header]) => {
-          details.requestHeaders[key] = header;
-        });
-        callback({
-          cancel: false,
-          requestHeaders: details.requestHeaders,
-        });
-      }
-    );
-
-    if (process.env.NODE_ENV /* === 'test'*/) {
-      session.defaultSession.webRequest.onSendHeaders(details => {
-        if (details.requestHeaders) {
-          Object.keys(details.requestHeaders).forEach(headerKey => {
-            log('Header sent:', headerKey, details.requestHeaders[headerKey]);
-          });
-        }
-      });
-    }
-
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-      if (
-        details.resourceType === 'mainFrame' ||
-        details.resourceType === 'subFrame'
-      ) {
-        // log('received headers..', details.responseHeaders);
-
-        // Set the CSP
-        const scriptSrc = [
-          `'self'`,
-          `'sha256-1Sj1x3xsk3UVwnakQHbO0yQ3Xm904avQIfGThrdrjcc='`,
-          `'${createSha256CspHash(renderInitialOptions())}'`,
-          `https://cdn.jsdelivr.net`,
-          `https://apis.google.com`,
-          `localhost:*`,
-          `file:`,
-        ];
-
-        return callback({
-          responseHeaders: Object.assign({}, details.responseHeaders, {
-            // Setting CSP
-            // TODO: Figure out why an error from this breaks devtools
-            'Content-Security-Policy': [
-              `script-src ${scriptSrc.join(' ')}; object-src 'self';`,
-              // `script-src 'self' 'sha256-1Sj1x3xsk3UVwnakQHbO0yQ3Xm904avQIfGThrdrjcc=' '${createSha256CspHash(renderInitialOptions())}' https://cdn.jsdelivr.net localhost:*; object-src 'self';`
-            ],
-          }),
-        });
-      }
-
-      callback({ responseHeaders: details.responseHeaders });
-    });
-
-    ipcMain.on(IPC_EVENT_NAMES.RENDERER_RESTART_APP, () => {
-      app.relaunch();
-      app.exit();
-    });
-
-    // TODO: Get type from altair-app as a devDependency
-    // Get 'set headers' instruction from app
-    ipcMain.on(
-      IPC_EVENT_NAMES.RENDERER_SET_HEADERS_SYNC,
-      (e, headers: { key: string; value: string; enabled?: boolean }[]) => {
-        this.requestHeaders = {};
-
-        headers.forEach(header => {
-          const normalizedKey = header.key.toLowerCase();
-          if (
-            HEADERS_TO_SET.includes(normalizedKey) &&
-            header.key &&
-            header.value &&
-            header.enabled
-          ) {
-            this.requestHeaders[normalizedKey] = header.value;
-          }
-        });
-
-        e.returnValue = true;
-      }
-    );
-
-    // Listen for the renderer ready event,
-    // then retrieve the opened file from the store and send it to the instance.
-    // Then remove it from the store
-    ipcMain.on(IPC_EVENT_NAMES.RENDERER_READY, () => {
-      if (!this.instance) {
-        throw new Error('instance not created!');
-      }
-      const openedFileContent = this.electronApp.store.get(
-        'opened-file-data-opened'
-      );
-      if (!openedFileContent) {
-        return;
-      }
-
-      this.instance.webContents.send(
-        IPC_EVENT_NAMES.FILE_OPENED,
-        openedFileContent
-      );
-      this.electronApp.store.delete('opened-file-data');
-    });
-
-    ipcMain.handle('reload-window', e => {
-      e.sender.reload();
-    });
-
-    ipcMain.on(
-      IPC_EVENT_NAMES.RENDERER_SAVE_AUTOBACKUP_DATA,
-      (e, data: string) => {
-        setAutobackup(data);
-      }
-    );
-
-    // TODO: Create an electron-interop package and move this there
-    handleWithCustomErrors(IPC_EVENT_NAMES.RENDERER_GET_AUTH_TOKEN, async e => {
-      if (!e.sender || e.sender !== this.instance?.webContents) {
-        throw new Error('untrusted source trying to get auth token');
-      }
-
-      const authServer = new AuthServer();
-      return authServer.getCustomToken();
-    });
-
-    handleWithCustomErrors(
-      IPC_EVENT_NAMES.RENDERER_GET_AUTOBACKUP_DATA,
-      async e => {
-        if (!e.sender || e.sender !== this.instance?.webContents) {
-          throw new Error('untrusted source');
-        }
-
-        return getAutobackup();
-      }
-    );
   }
 
-  registerProtocol() {
+  private registerProtocol() {
+    if (protocol.isProtocolHandled(ALTAIR_CUSTOM_PROTOCOL)) {
+      return;
+    }
     /**
      * Using a custom buffer protocol, instead of a file protocol because of restrictions with the file protocol.
      */
-    protocol.handle('altair', async request => {
+    protocol.handle(ALTAIR_CUSTOM_PROTOCOL, async (request) => {
       const requestDirectory = getDistDirectory();
       const originalFilePath = path.join(
         requestDirectory,
         new url.URL(request.url).pathname
       );
       const indexPath = path.join(requestDirectory, 'index.html');
+      console.log('index path', indexPath);
 
       const { mimeType, data } = await this.getFileContentData(
         originalFilePath,
@@ -328,7 +383,7 @@ export class WindowManager {
     });
   }
 
-  async getFilePath(filePath: string): Promise<string> {
+  private async getFilePath(filePath: string): Promise<string> {
     log('file..', filePath);
 
     if (!filePath) {
@@ -354,13 +409,13 @@ export class WindowManager {
    * @param {string} originalFilePath path to file
    * @param {string} fallbackPath usually path to index file
    */
-  async getFileContentData(originalFilePath: string, fallbackPath: string) {
+  private async getFileContentData(originalFilePath: string, fallbackPath: string) {
     let filePath = await this.getFilePath(originalFilePath);
 
     if (!filePath) {
       filePath = fallbackPath;
     }
-    if (filePath && filePath.endsWith('.map')) {
+    if (filePath?.endsWith('.map')) {
       return {
         mimeType: 'text/plain',
         data: Buffer.from(
@@ -372,8 +427,8 @@ export class WindowManager {
     // some files are binary files, eg. font, so don't encode utf8
     let data = await fs.readFile(filePath);
 
-    if (filePath && filePath.includes('index.html')) {
-      data = Buffer.from(renderAltair(), 'utf-8');
+    if (filePath === fallbackPath) {
+      data = Buffer.from(renderAltair(this.getRenderOptions()), 'utf-8');
     }
 
     // Load the data from the file into a buffer and pass it to the callback
@@ -381,6 +436,12 @@ export class WindowManager {
     return {
       mimeType: mime.lookup(filePath) || '',
       data,
+    };
+  }
+
+  private getRenderOptions(): RenderOptions {
+    return {
+      persistedSettings: getPersisedSettingsFromFile(),
     };
   }
 }

@@ -1,6 +1,7 @@
 <nz-modal
   [nzVisible]="showSettingsDialog"
   (nzVisibleChange)="toggleDialogChange.next($event)"
+  [nzCloseIcon]="'close-circle'"
   [nzTitle]="modalTitle"
   [nzContent]="modalContent"
   [nzFooter]="modalFooter"
@@ -19,83 +20,73 @@
       <small
         ><a
           href="#"
-          (click)="
-            $event.preventDefault(); $event.stopPropagation(); onToggleView()
-          "
+          (click)="$event.preventDefault(); $event.stopPropagation(); onToggleView()"
           >{{ 'SETTINGS_TOGGLE_ADVANCED_MODE' | translate }}</a
         ></small
       >
-      <div class="app-dialog-section" *ngIf="showForm">
-        <app-schema-form
-          [schema]="settingsSchema"
-          [data]="localSettings"
-          (dataChange)="onFormDataChange($event)"
-        ></app-schema-form>
-      </div>
+      @if (showForm) {
+        <div class="app-dialog-section">
+          <app-schema-form
+            [schema]="settingsSchema"
+            [data]="localSettings"
+            (dataChange)="onFormDataChange($event)"
+          ></app-schema-form>
+        </div>
+      }
 
-      <div class="app-dialog-section" *ngIf="!showForm">
-        <app-codemirror
-          #editor
-          class="settings-editor-textarea"
-          [fullHeight]="true"
-          [extensions]="editorExtensions"
-          [ngModel]="jsonSettings"
-          (ngModelChange)="onSettingsChange($event)"
-        ></app-codemirror>
-        <!-- <ngx-codemirror
-          #editor
-          class="settings-editor-textarea"
-          [options]="jsonEditorConfig"
-          [ngModel]="jsonSettings"
-          (ngModelChange)="onSettingsChange($event)"
-        ></ngx-codemirror> -->
-        <small>{{ 'SETTINGS_SHOW_EDITOR_HINT' | translate }}</small>
-        <small
-          ><a
-            target="_blank"
-            href="http://altairgraphql.dev/docs/features/settings-pane"
-            rel="noopener"
-            >Click here for available settings options</a
-          ></small
-        >
-      </div>
+      @if (!showForm) {
+        <div class="app-dialog-section">
+          <app-codemirror
+            #editor
+            class="settings-editor-textarea"
+            [fullHeight]="true"
+            [extensions]="editorExtensions"
+            [ngModel]="jsonSettings"
+            (ngModelChange)="onSettingsChange($event)"
+          ></app-codemirror>
+          <small>{{ 'SETTINGS_SHOW_EDITOR_HINT' | translate }}</small>
+          <small
+            ><a
+              target="_blank"
+              href="http://altairgraphql.dev/docs/features/settings-pane"
+              rel="noopener"
+              >Click here for available settings options</a
+            ></small
+          >
+        </div>
+      }
 
       <div class="app-dialog-section">
         <nz-collapse>
-          <nz-collapse-panel
-            [nzHeader]="'SETTINGS_KEYBOARD_SHORTCUTS' | translate"
-          >
+          <nz-collapse-panel [nzHeader]="'SETTINGS_KEYBOARD_SHORTCUTS' | translate">
             <div>
               <nz-collapse [nzBordered]="false">
-                <nz-collapse-panel
-                  *ngFor="
-                    let category of shortcutCategories;
-                    trackBy: trackByIndex
-                  "
-                  [nzHeader]="category.title"
-                >
-                  <nz-list
-                    [nzDataSource]="category.shortcuts"
-                    nzBordered
-                    [nzRenderItem]="shortcutItem"
-                  >
-                    <ng-template #shortcutItem let-shortcut>
-                      <nz-list-item>
-                        <span class="settings-shortcut-description">
-                          {{ shortcut.description }}
-                        </span>
-                        <span
-                          class="settings-shortcut-key"
-                          *ngFor="
-                            let key of shortcut.keys;
-                            trackBy: trackByIndex
-                          "
-                          >{{ key }}</span
-                        >
-                      </nz-list-item>
-                    </ng-template>
-                  </nz-list>
-                </nz-collapse-panel>
+                @for (
+                  category of shortcutCategories;
+                  track trackByIndex($index, category)
+                ) {
+                  <nz-collapse-panel [nzHeader]="category.title">
+                    <nz-list
+                      [nzDataSource]="category.shortcuts"
+                      nzBordered
+                      [nzRenderItem]="shortcutItem"
+                    >
+                      <ng-template #shortcutItem let-shortcut>
+                        <nz-list-item>
+                          <span class="settings-shortcut-description">
+                            {{ shortcut.description }}
+                          </span>
+                          @for (
+                            key of shortcut.keys;
+                            track trackByIndex($index, key)
+                          ) {
+                            <span class="settings-shortcut-key">{{ key }}</span>
+                          }
+                        </nz-list-item>
+                      </ng-template>
+                    </nz-list>
+                  </nz-collapse-panel>
+                }
               </nz-collapse>
             </div>
           </nz-collapse-panel>
@@ -118,9 +109,7 @@
   <ng-template #modalFooter>
     <div class="app-dialog-footer">
       <div class="left text-align-left">
-        <label
-          >{{ 'SETTINGS_VERSION_TEXT' | translate }} {{ appVersion }}</label
-        >
+        <label>{{ 'SETTINGS_VERSION_TEXT' | translate }} {{ appVersion }}</label>
         <div>
           <small
             >{{ 'SETTINGS_HELP_WITH_TRANSLATIONS_TEXT' | translate }}
@@ -128,6 +117,7 @@
               href="https://altair-gql-translate.surge.sh/"
               target="_blank"
               track-id="go_to_translate_link"
+              rel="noopener"
               >{{ 'CLICK_HERE_TEXT' | translate }}</a
             ></small
           >
@@ -135,7 +125,7 @@
       </div>
       <button
         track-id="save_settings"
-        class="app-button active-primary right"
+        class="btn btn--primary right"
         (click)="saveSettings()"
       >
         {{ 'SAVE_BUTTON' | translate }}

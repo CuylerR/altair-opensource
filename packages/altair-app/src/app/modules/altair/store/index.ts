@@ -1,16 +1,17 @@
 import { InjectionToken } from '@angular/core';
 import {
   combineReducers,
-  Action,
   ActionReducer,
   ActionReducerMap,
   MetaReducer,
+  createSelector,
 } from '@ngrx/store';
 
 import { environment } from '../../../../environments/environment';
 
 import * as fromLayout from './layout/layout.reducer';
 import * as fromQuery from './query/query.reducer';
+import * as fromAuthorization from './authorization/authorization.reducer';
 import * as fromHeaders from './headers/headers.reducer';
 import * as fromVariables from './variables/variables.reducer';
 import * as fromDialogs from './dialogs/dialogs.reducer';
@@ -35,9 +36,14 @@ import { asyncStorageSync } from './async-storage-sync';
 import { localStorageSyncConfig } from './local-storage-sync-config';
 import { RootState } from 'altair-graphql-core/build/types/state/state.interfaces';
 import { AllActions } from './action';
+import { selectWindowState } from './windows/selectors';
+import { getQueryState } from './query/selectors';
+import { selectCollections } from './collection/selectors';
+import { str } from '../utils';
 
 export const getPerWindowReducer = () => {
   const perWindowReducers = {
+    authorization: fromAuthorization.authorizationReducer,
     layout: fromLayout.layoutReducer,
     query: fromQuery.queryReducer,
     headers: fromHeaders.headerReducer,
@@ -104,13 +110,7 @@ export const reducerToken = new InjectionToken<ActionReducerMap<RootState>>(
   'Registered Reducers'
 );
 
-export const reducerProvider = [
-  { provide: reducerToken, useValue: getReducer() },
-];
-
-export const selectWindowState = (windowId: string) => (state: RootState) => {
-  return state.windows[windowId];
-};
+export const reducerProvider = [{ provide: reducerToken, useValue: getReducer() }];
 
 export * from './query/selectors';
 export * from './docs/selectors';
@@ -126,3 +126,30 @@ export * from './stream/selectors';
 export * from './local/selectors';
 export * from './account/selectors';
 export * from './workspace/selectors';
+export * from './environments/selectors';
+export * from './authorization/selectors';
+export * from './windows/selectors';
+export * from './dialogs/selectors';
+
+export const selectHasUnsavedChanges = (windowId: string) => {
+  return createSelector(
+    selectWindowState(windowId),
+    selectCollections,
+    (windowState, collections) => {
+      if (!windowState || !collections) {
+        return false;
+      }
+      const collection = collections.find(
+        (c) => str(c.id) === str(windowState.layout.collectionId)
+      );
+      const queryInCollection = collection?.queries.find(
+        (q) => str(q.id) === str(windowState.layout.windowIdInCollection ?? '')
+      );
+
+      return (
+        queryInCollection?.query !== windowState.query.query ||
+        queryInCollection?.variables !== windowState.variables.variables
+      );
+    }
+  );
+};

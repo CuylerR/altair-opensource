@@ -1,6 +1,6 @@
-import { EMPTY, from, Observable } from 'rxjs';
+import { EMPTY, firstValueFrom, from } from 'rxjs';
 
-import { first, tap, map, switchMap, take } from 'rxjs/operators';
+import { tap, map, switchMap, take } from 'rxjs/operators';
 import { Injectable } from '@angular/core';
 import { select, Store } from '@ngrx/store';
 
@@ -31,6 +31,7 @@ import { RootState } from 'altair-graphql-core/build/types/state/state.interface
 import { ExportWindowState } from 'altair-graphql-core/build/types/state/window.interfaces';
 import { QueryCollectionService } from './query-collection/query-collection.service';
 import { NotifyService } from './notify/notify.service';
+import { IQuery } from 'altair-graphql-core/build/types/state/collection.interfaces';
 
 interface ImportWindowDataOptions {
   fixedTitle?: boolean;
@@ -66,8 +67,7 @@ export class WindowService {
 
         const newWindow = {
           windowId: uuid(),
-          title:
-            opts.title || `Window ${Object.keys(state.windows).length + 1}`,
+          title: opts.title ?? `Window ${Object.keys(state.windows).length + 1}`,
           url,
           collectionId: opts.collectionId,
           windowIdInCollection: opts.windowIdInCollection,
@@ -101,38 +101,46 @@ export class WindowService {
   }
 
   duplicateWindow(windowId: string) {
-    return this.store.pipe(take(1)).subscribe((data) => {
-      const window = data.windows[windowId];
-      if (!window) {
-        return;
-      }
-      const clonedWindow = { ...window };
+    return this.store.pipe(
+      take(1),
+      switchMap((data) => {
+        const window = data.windows[windowId];
+        if (!window) {
+          return EMPTY;
+        }
+        const clonedWindow = { ...window };
 
-      const windowData: ExportWindowState = {
-        version: 1,
-        type: 'window',
-        query: clonedWindow.query.query || '',
-        apiUrl: clonedWindow.query.url,
-        variables: clonedWindow.variables.variables,
-        subscriptionUrl: clonedWindow.query.subscriptionUrl,
-        subscriptionConnectionParams:
-          clonedWindow.query.subscriptionConnectionParams,
-        headers: clonedWindow.headers,
-        windowName: `${clonedWindow.layout.title} (Copy)`,
-        preRequestScript: clonedWindow.preRequest.script,
-        preRequestScriptEnabled: clonedWindow.preRequest.enabled,
-        gqlSchema: clonedWindow.schema.schema,
-      };
+        const windowData: ExportWindowState = {
+          version: 1,
+          type: 'window',
+          query: clonedWindow.query.query ?? '',
+          apiUrl: clonedWindow.query.url,
+          variables: clonedWindow.variables.variables,
+          subscriptionUrl: clonedWindow.query.subscriptionUrl,
+          subscriptionConnectionParams:
+            clonedWindow.query.subscriptionConnectionParams,
+          subscriptionRequestHandlerId:
+            clonedWindow.query.subscriptionRequestHandlerId,
+          subscriptionUseDefaultRequestHandler:
+            clonedWindow.query.subscriptionUseDefaultRequestHandler,
+          requestHandlerId: clonedWindow.query.requestHandlerId,
+          requestHandlerAdditionalParams:
+            clonedWindow.query.requestHandlerAdditionalParams,
+          headers: clonedWindow.headers,
+          windowName: `${clonedWindow.layout.title} (Copy)`,
+          preRequestScript: clonedWindow.preRequest.script,
+          preRequestScriptEnabled: clonedWindow.preRequest.enabled,
+          gqlSchema: clonedWindow.schema.schema,
+        };
 
-      return this.importWindowData(windowData);
-    });
+        return from(this.importWindowData(windowData));
+      })
+    );
   }
 
   getWindowExportData(windowId: string) {
-    return this.store.pipe(
-      take(1),
-      map((state) => {
-        const window = state.windows[windowId];
+    return this.getWindowState(windowId).pipe(
+      map((window) => {
         if (!window) {
           return;
         }
@@ -143,7 +151,7 @@ export class WindowService {
         return {
           version: 1 as const,
           type: 'window' as const,
-          query: clonedWindow.query.query || '',
+          query: clonedWindow.query.query ?? '',
           apiUrl: clonedWindow.query.url,
           variables: clonedWindow.variables.variables,
           subscriptionUrl: clonedWindow.query.subscriptionUrl,
@@ -160,7 +168,7 @@ export class WindowService {
     );
   }
 
-  importWindowDataFromJson(data: string) {
+  async importWindowDataFromJson(data: string) {
     if (!data) {
       throw new Error('String is empty.');
     }
@@ -181,13 +189,13 @@ export class WindowService {
     }
   }
 
-  importWindowDataFromCurl(curlStr: string) {
+  async importWindowDataFromCurl(curlStr: string) {
     if (!curlStr) {
       throw new Error('String is empty.');
     }
 
     try {
-      const curlObj = parseCurlToObj(curlStr);
+      const curlObj = await parseCurlToObj(curlStr);
       const windowData: ExportWindowState = {
         version: 1,
         type: 'window',
@@ -211,10 +219,9 @@ export class WindowService {
   }
 
   /**
-   * Import the window represented by the provided data string
-   * @param data window data string
+   * Import the window represented by the provided data
    */
-  importWindowData(
+  async importWindowData(
     data: ExportWindowState,
     options: ImportWindowDataOptions = {}
   ) {
@@ -235,30 +242,33 @@ export class WindowService {
       // Set headers
       // Set variables
       // Set subscription URL
-      this.newWindow({
-        title: data.windowName,
-        url: data.apiUrl,
-        collectionId: data.collectionId,
-        windowIdInCollection: data.windowIdInCollection,
-        fixedTitle: options.fixedTitle,
-      }).subscribe((newWindow) => {
-        const windowId = newWindow.windowId;
+      const newWindow = await firstValueFrom(
+        this.newWindow({
+          title: data.windowName,
+          url: data.apiUrl,
+          collectionId: data.collectionId,
+          windowIdInCollection: data.windowIdInCollection,
+          fixedTitle: options.fixedTitle,
+        })
+      );
 
-        this.updateWindowState(windowId, data);
+      const windowId = newWindow.windowId;
 
-        this.store.dispatch(
-          new windowsMetaActions.SetActiveWindowIdAction({ windowId })
-        );
-      });
+      await firstValueFrom(this.updateWindowState$(windowId, data));
+
+      this.store.dispatch(
+        new windowsMetaActions.SetActiveWindowIdAction({ windowId })
+      );
+
+      return windowId;
     } catch (err) {
       debug.log('Something went wrong while importing the data.', err);
     }
   }
 
-  updateWindowState(windowId: string, data: ExportWindowState) {
-    this.getWindowState(windowId)
-      .pipe(take(1))
-      .subscribe((window) => {
+  updateWindowState$(windowId: string, data: ExportWindowState) {
+    return this.getWindowState(windowId).pipe(
+      tap((window) => {
         this.store.dispatch(
           new layoutActions.SetWindowNameAction(windowId, {
             title: data.windowName,
@@ -274,16 +284,11 @@ export class WindowService {
           );
         }
         if (data.query) {
-          this.store.dispatch(
-            new queryActions.SetQueryAction(data.query, windowId)
-          );
+          this.store.dispatch(new queryActions.SetQueryAction(data.query, windowId));
         }
         if (data.headers.length) {
           this.store.dispatch(
-            new headerActions.SetHeadersAction(
-              { headers: data.headers },
-              windowId
-            )
+            new headerActions.SetHeadersAction({ headers: data.headers }, windowId)
           );
         }
         if (data.variables) {
@@ -296,10 +301,9 @@ export class WindowService {
         }
         if (data.subscriptionUrl) {
           this.store.dispatch(
-            new queryActions.SetSubscriptionUrlAction(
-              { subscriptionUrl: data.subscriptionUrl },
-              windowId
-            )
+            new queryActions.SetRequestHandlerInfoAction(windowId, {
+              subscriptionUrl: data.subscriptionUrl,
+            })
           );
         }
         if (data.subscriptionConnectionParams) {
@@ -309,10 +313,32 @@ export class WindowService {
             })
           );
         }
-        if (data.subscriptionProvider) {
+        if (data.subscriptionRequestHandlerId) {
           this.store.dispatch(
-            new queryActions.SetSubscriptionProviderIdAction(windowId, {
-              providerId: data.subscriptionProvider,
+            new queryActions.SetRequestHandlerInfoAction(windowId, {
+              subscriptionRequestHandlerId: data.subscriptionRequestHandlerId,
+            })
+          );
+        }
+        if (data.subscriptionUseDefaultRequestHandler) {
+          this.store.dispatch(
+            new queryActions.SetRequestHandlerInfoAction(windowId, {
+              subscriptionUseDefaultRequestHandler:
+                data.subscriptionUseDefaultRequestHandler,
+            })
+          );
+        }
+        if (data.requestHandlerId) {
+          this.store.dispatch(
+            new queryActions.SetRequestHandlerInfoAction(windowId, {
+              requestHandlerId: data.requestHandlerId,
+            })
+          );
+        }
+        if (data.requestHandlerAdditionalParams) {
+          this.store.dispatch(
+            new queryActions.SetRequestHandlerInfoAction(windowId, {
+              additionalParams: data.requestHandlerAdditionalParams,
             })
           );
         }
@@ -349,14 +375,19 @@ export class WindowService {
             new gqlSchemaActions.SetSchemaAction(windowId, data.gqlSchema)
           );
         }
-      });
+      })
+    );
+  }
+
+  async updateWindowState(windowId: string, data: ExportWindowState) {
+    return firstValueFrom(this.updateWindowState$(windowId, data));
   }
 
   /**
    * Parse data and import as identified type
    * @param dataStr data
    */
-  importStringData(dataStr: string) {
+  async importStringData(dataStr: string) {
     const invalidFileError = new Error('Invalid Altair window file.');
     const emptyWindowData: ExportWindowState = {
       version: 1,
@@ -391,7 +422,7 @@ export class WindowService {
         const schema = this.gqlService.sdlToSchema(dataStr);
         if (schema) {
           // Import only schema
-          this.importWindowData({
+          await this.importWindowData({
             ...emptyWindowData,
             version: 1,
             type: 'window',
@@ -433,10 +464,40 @@ export class WindowService {
     }
     const dataStr = await getFileStr(file);
     try {
-      this.importStringData(dataStr);
+      await this.importStringData(dataStr);
     } catch (error) {
       debug.log('There was an issue importing the file.', error);
     }
+  }
+
+  async loadQueryFromCollection(
+    query: IQuery,
+    collectionId: string,
+    windowIdInCollection: string
+  ) {
+    const windows = await firstValueFrom(
+      this.store.pipe(
+        select((state) => state.windows),
+        take(1)
+      )
+    );
+    const matchingOpenQueryWindowId = Object.keys(windows).find((windowId) => {
+      return windows[windowId]?.layout.windowIdInCollection === windowIdInCollection;
+    });
+    if (matchingOpenQueryWindowId) {
+      this.setActiveWindow(matchingOpenQueryWindowId);
+      return;
+    }
+    await this.importWindowData(
+      { ...query, collectionId, windowIdInCollection },
+      { fixedTitle: true }
+    );
+  }
+
+  setActiveWindow(windowId: string) {
+    this.store.dispatch(
+      new windowsMetaActions.SetActiveWindowIdAction({ windowId })
+    );
   }
 
   /**
@@ -446,7 +507,6 @@ export class WindowService {
     // Validate that query is ACTUALLY in an existing collection
     this.getWindowState(windowId)
       .pipe(
-        take(1),
         switchMap((data) => {
           if (data?.layout.collectionId && data?.layout.windowIdInCollection) {
             return from(
@@ -476,10 +536,6 @@ export class WindowService {
         }
       });
 
-    this.store.dispatch(
-      new queryActions.SetSubscriptionResponseListAction(windowId, { list: [] })
-    );
-    this.store.dispatch(new queryActions.StopSubscriptionAction(windowId));
     this.store.dispatch(new streamActions.StopStreamClientAction(windowId));
     this.store.dispatch(new streamActions.StartStreamClientAction(windowId));
 
@@ -498,10 +554,9 @@ export class WindowService {
   }
 
   private getWindowState(windowId: string) {
-    return this.store.pipe(select(fromRoot.selectWindowState(windowId)));
+    return this.store.pipe(select(fromRoot.selectWindowState(windowId)), take(1));
   }
   private cleanupWindow(windowId: string) {
-    this.store.dispatch(new queryActions.StopSubscriptionAction(windowId));
     this.store.dispatch(new streamActions.StopStreamClientAction(windowId));
   }
 }

@@ -6,7 +6,9 @@ import 'fake-indexeddb/auto';
 const crypto = require('crypto');
 
 Object.assign(global, require('jest-chrome'));
+import { TextEncoder, TextDecoder } from 'util';
 
+Object.assign(global, { TextDecoder, TextEncoder });
 Object.defineProperty(window, 'crypto', {
   value: {
     getRandomValues: (arr: unknown[]) => crypto.randomBytes(arr.length),
@@ -19,7 +21,7 @@ jest.mock(
   })
 );
 jest.mock(
-  './app/modules/altair/services/pre-request/evaluator-worker.factory',
+  './app/modules/altair/services/pre-request/evaluator-client.factory',
   () => ({
     ScriptEvaluatorWorkerFactory: function () {
       return {
@@ -63,14 +65,6 @@ Object.defineProperty(window, 'console', {
     log: jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
-  },
-});
-Object.defineProperty(document.body.style, 'transform', {
-  value: () => {
-    return {
-      enumerable: true,
-      configurable: true,
-    };
   },
 });
 

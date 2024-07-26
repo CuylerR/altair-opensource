@@ -2,7 +2,6 @@
 
 version: '3.8'
 services:
-
   postgres:
     image: postgres:13.5
     restart: always
@@ -22,6 +21,20 @@ services:
       - POSTGRES_PASSWORD=db_password
     ports:
       - '5433:5432'
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - 7869:11434
+    volumes:
+      - .:/code
+      - ./.ollama/ollama:/root/.ollama
+      - ./bin/start_ollama.sh:/entrypoint.sh
+    # pull_policy: always
+    tty: true
+    restart: no
+    env_file: .env
+    entrypoint: ['/usr/bin/bash', '/entrypoint.sh']
 
 volumes:
   postgres:

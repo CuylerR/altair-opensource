@@ -1,10 +1,13 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`WindowSwitcherComponent should render correctly 1`] = `
-<app-window-switcher>
+<app-window-switcher
+  class="window-switcher__no-scrollbar"
+>
   <ul
-    class="window-switcher__list"
-    sortablejs=""
+    cdkdroplist=""
+    cdkdroplistorientation="horizontal"
+    class="window-switcher__list window-switcher__no-scrollbar"
   >
     
     <li
@@ -15,14 +18,5 @@ exports[`WindowSwitcherComponent should render correctly 1`] = `
     
   </ul>
   
-  <context-menu>
-    
-    
-    
-    
-    
-    
-    
-  </context-menu>
 </app-window-switcher>
 `;

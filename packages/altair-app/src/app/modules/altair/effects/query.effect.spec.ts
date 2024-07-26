@@ -11,8 +11,9 @@ import {
   DonationService,
   EnvironmentService,
   ElectronAppService,
-  SubscriptionProviderRegistryService,
   QueryService,
+  ApiService,
+  RequestHandlerRegistryService,
 } from '../services';
 import * as fromRoot from '../store';
 import {
@@ -30,7 +31,8 @@ describe('query effects', () => {
   let mockElectronAppService: ElectronAppService;
   let mockEnvironmentService: EnvironmentService;
   let mockQueryService: QueryService;
-  let mockSubscriptionProviderRegistryService: SubscriptionProviderRegistryService;
+  let mockRequestHandlerRegistryService: RequestHandlerRegistryService;
+  let mockApiService: ApiService;
   let mockStore: Store<RootState>;
 
   beforeEach(() => {
@@ -42,7 +44,8 @@ describe('query effects', () => {
     mockElectronAppService = mock();
     mockEnvironmentService = mock();
     mockQueryService = mock();
-    mockSubscriptionProviderRegistryService = mock();
+    mockRequestHandlerRegistryService = mock();
+    mockApiService = mock();
     mockStore = mockStoreFactory();
   });
   describe('.convertToNamedQuery', () => {
@@ -71,7 +74,7 @@ describe('query effects', () => {
         mockElectronAppService,
         mockEnvironmentService,
         mockQueryService,
-        mockSubscriptionProviderRegistryService,
+        mockApiService,
         mockStore
       );
 

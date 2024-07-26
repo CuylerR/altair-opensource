@@ -15,15 +15,15 @@ export class HistoryDialogComponent {
   constructor() {}
 
   restoreHistory(index: number) {
-    this.restoreHistoryChange.next(index);
-    this.toggleDialogChange.next();
+    this.restoreHistoryChange.emit(index);
+    this.toggleDialogChange.emit();
   }
 
   clearHistory() {
-    this.clearHistoryChange.next();
+    this.clearHistoryChange.emit();
   }
 
-  trackByIndex(index: number) {
+  trackByIndex(index: number, h: History) {
     return index;
   }
 }

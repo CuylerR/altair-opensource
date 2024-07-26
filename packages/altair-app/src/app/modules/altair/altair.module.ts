@@ -23,7 +23,6 @@ import { ToastrModule } from 'ngx-toastr';
 import { TranslateModule, TranslateLoader } from '@ngx-translate/core';
 import { TranslateHttpLoader } from '@ngx-translate/http-loader';
 
-import { SortablejsModule } from 'ngx-sortablejs';
 import { CookieService } from 'ngx-cookie-service';
 
 import { SharedModule } from './modules/shared/shared.module';
@@ -53,12 +52,12 @@ import { registerLocaleData } from '@angular/common';
 import en from '@angular/common/locales/en';
 import { OverlayContainer } from '@angular/cdk/overlay';
 import { AppOverlayContainer } from './overlay-container';
-import { environment } from 'environments/environment';
 import { AppInitAction } from './store/action';
 import { ReducerBootstrapper } from './store/reducer-bootstrapper';
 import { RootState } from 'altair-graphql-core/build/types/state/state.interfaces';
 import { AccountEffects } from './effects/account.effect';
 import { WorkspaceEffects } from './effects/workspace.effect';
+import { ElectronEffects } from './effects/electron.effect';
 
 registerLocaleData(en);
 
@@ -89,9 +88,12 @@ const providers = [
   services.PluginEventService,
   services.PreRequestService,
   services.ThemeRegistryService,
-  services.SubscriptionProviderRegistryService,
   services.PluginContextService,
   services.QueryService,
+  services.AccountService,
+  services.SharingService,
+  services.FilesService,
+  services.RequestHandlerRegistryService,
   // Setting the reducer provider in main.ts now (for proper config initialization)
   // reducerProvider,
   CookieService,
@@ -127,7 +129,6 @@ const providers = [
     ReactiveFormsModule,
     HttpClientModule,
     SharedModule.forRoot(),
-    SortablejsModule.forRoot({ animation: 150 }),
     ComponentModule,
     DocViewerModule,
     SchemaFormModule,
@@ -150,6 +151,7 @@ const providers = [
       LocalEffects,
       AccountEffects,
       WorkspaceEffects,
+      ElectronEffects,
     ]),
     // StoreDevtoolsModule.instrument({
     //   logOnly: environment.production,
@@ -164,7 +166,7 @@ const providers = [
     ToastrModule.forRoot({
       newestOnTop: false,
       closeButton: true,
-      positionClass: 'toast-top-center',
+      positionClass: 'toast-bottom-right',
       enableHtml: true,
       countDuplicates: true,
       preventDuplicates: true,

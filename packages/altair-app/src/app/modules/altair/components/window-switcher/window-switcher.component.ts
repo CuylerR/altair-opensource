@@ -1,17 +1,18 @@
+import { CdkDragDrop } from '@angular/cdk/drag-drop';
 import {
   Component,
-  OnInit,
   Input,
   Output,
   EventEmitter,
-  ViewChild,
+  HostBinding,
 } from '@angular/core';
 import { AltairConfig } from 'altair-graphql-core/build/config';
 import { PerWindowState } from 'altair-graphql-core/build/types/state/per-window.interfaces';
 import { WindowState } from 'altair-graphql-core/build/types/state/window.interfaces';
-
-import { ContextMenuComponent } from 'ngx-contextmenu';
-import { SortableEvent } from 'sortablejs';
+import {
+  NzContextMenuService,
+  NzDropdownMenuComponent,
+} from 'ng-zorro-antd/dropdown';
 
 import { debug } from '../../utils/logger';
 
@@ -20,12 +21,13 @@ import { debug } from '../../utils/logger';
   templateUrl: './window-switcher.component.html',
   styleUrls: ['./window-switcher.component.scss'],
 })
-export class WindowSwitcherComponent implements OnInit {
+export class WindowSwitcherComponent {
   @Input() windows: WindowState = {};
   @Input() windowIds: string[] = [];
   @Input() closedWindows: PerWindowState[] = [];
   @Input() activeWindowId = '';
   @Input() isElectron = false;
+  @Input() enableScrollbar = false;
   @Output() activeWindowChange = new EventEmitter();
   @Output() newWindowChange = new EventEmitter();
   @Output() removeWindowChange = new EventEmitter();
@@ -34,24 +36,20 @@ export class WindowSwitcherComponent implements OnInit {
   @Output() repositionWindowChange = new EventEmitter();
   @Output() reopenClosedWindowChange = new EventEmitter();
 
-  @ViewChild(ContextMenuComponent, { static: true })
-  public windowTabMenu?: ContextMenuComponent;
-
-  windowTabMenuData = [{ name: 'Edit' }];
+  @HostBinding('class.window-switcher__no-scrollbar') get noScrollbar() {
+    return !this.enableScrollbar;
+  }
 
   windowIdEditing = '';
   maxWindowCount = this.altairConfig.max_windows;
 
-  sortableOptions = {};
+  constructor(
+    private altairConfig: AltairConfig,
+    private nzContextMenuService: NzContextMenuService
+  ) {}
 
-  constructor(private altairConfig: AltairConfig) {}
-
-  ngOnInit() {
-    this.sortableOptions = {
-      onUpdate: (event: SortableEvent) => {
-        this.moveWindow(event.oldIndex || 0, event.newIndex || 0);
-      },
-    };
+  onDropEnd(event: CdkDragDrop<any, any, any>) {
+    this.moveWindow(event.previousIndex || 0, event.currentIndex || 0);
   }
 
   onClickWindow(windowId: string) {
@@ -100,6 +98,14 @@ export class WindowSwitcherComponent implements OnInit {
 
   reopenClosedTab() {
     this.reopenClosedWindowChange.emit();
+  }
+
+  contextMenu($event: MouseEvent, menu: NzDropdownMenuComponent): void {
+    this.nzContextMenuService.create($event, menu);
+  }
+
+  closeMenu(): void {
+    this.nzContextMenuService.close();
   }
 
   log(str: string) {

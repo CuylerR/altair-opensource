@@ -1,14 +1,10 @@
 import { NgModule, ModuleWithProviders } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
+import { DragDropModule } from '@angular/cdk/drag-drop';
 import { TranslateModule } from '@ngx-translate/core';
-import { SortablejsModule } from 'ngx-sortablejs';
 import { NgPipesModule } from 'ngx-pipes';
-import { ContextMenuModule } from 'ngx-contextmenu';
-import { NguiAutoCompleteModule } from '@ngui/auto-complete';
-import { NgxPopperModule } from 'ngx-popper';
 import { MarkdownModule } from 'ngx-markdown';
-import { HotToastModule } from '@ngneat/hot-toast';
 import { ResizableModule } from 'angular-resizable-element';
 
 import { NzButtonModule } from 'ng-zorro-antd/button';
@@ -36,6 +32,7 @@ import { NzPopoverModule } from 'ng-zorro-antd/popover';
 
 import { IconsModule } from '../icons/icons.module';
 import { NzAvatarModule } from 'ng-zorro-antd/avatar';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
 const AntdComponentModules = [
   NzButtonModule,
@@ -67,16 +64,11 @@ const AntdComponentModules = [
 @NgModule({
   imports: [
     CommonModule,
+    FormsModule,
+    ReactiveFormsModule,
+    DragDropModule,
     TranslateModule.forRoot(),
-    SortablejsModule,
     NgPipesModule,
-    NguiAutoCompleteModule, // use antd
-    ContextMenuModule.forRoot(),
-    NgxPopperModule.forRoot({
-      // use antd
-      applyClass: 'tooltip-content',
-      trigger: 'hover',
-    }),
     MarkdownModule.forRoot(),
     ResizableModule,
     IconsModule,
@@ -102,16 +94,15 @@ const AntdComponentModules = [
 
   // DON'T FORGET TO EXPORT MODULE
   exports: [
+    FormsModule,
+    ReactiveFormsModule,
+    DragDropModule,
     TranslateModule,
-    SortablejsModule,
     NgPipesModule,
-    ContextMenuModule,
-    NguiAutoCompleteModule,
-    NgxPopperModule,
     MarkdownModule,
     ResizableModule,
     IconsModule,
-    HotToastModule,
+    // HotToastModule,
     ...AntdComponentModules,
   ],
 })

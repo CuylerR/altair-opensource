@@ -15,29 +15,9 @@ import {
   EnvironmentState,
 } from 'altair-graphql-core/build/types/state/environments.interfaces';
 import { Extension } from '@codemirror/state';
-import { json } from '@codemirror/lang-json';
-import { Options as SortableOptions, SortableEvent } from 'sortablejs';
-import { TODO } from 'altair-graphql-core/build/types/shared';
-(window as any).jsonlint = (window as any).jsonlint || {
-  parser: <TODO>{
-    parse: function (str: string) {
-      try {
-        return JSON.parse(str);
-      } catch (err) {
-        if (this.parseError) {
-          this.parseError('Invalid JSON', {
-            loc: {
-              first_line: 1,
-              first_column: 1,
-              last_line: 1,
-              last_column: 1,
-            },
-          });
-        }
-      }
-    },
-  },
-};
+import { json, jsonParseLinter } from '@codemirror/lang-json';
+import { linter } from '@codemirror/lint';
+import { CdkDragDrop } from '@angular/cdk/drag-drop';
 
 @Component({
   selector: 'app-environment-manager',
@@ -54,31 +34,17 @@ export class EnvironmentManagerComponent implements OnInit, OnChanges {
   @Output() addSubEnvironmentChange = new EventEmitter();
   @Output() deleteSubEnvironmentChange = new EventEmitter();
   @Output() repositionSubEnvironmentsChange = new EventEmitter();
+  @Output() importEnvironmentChange = new EventEmitter();
+  @Output() exportEnvironmentChange = new EventEmitter<EnvironmentState>();
 
   @ViewChild('subEnvironmentTitle') subEnvironmentTitleEl?: ElementRef;
 
-  editorExtensions: Extension[] = [
-    json(),
-    // jsonParseLinter,
-  ];
+  editorExtensions: Extension[] = [json(), linter(jsonParseLinter())];
 
   selectedEnvironmentId = 'base';
   selectedEnvironment?: EnvironmentState;
   editorContent = '{}';
   editorTitle = '';
-
-  sortableOptions: SortableOptions;
-
-  constructor() {
-    this.sortableOptions = {
-      onUpdate: (event: SortableEvent) => {
-        this.repositionSubEnvironmentsChange.emit({
-          currentPosition: event.oldIndex,
-          newPosition: event.newIndex,
-        });
-      },
-    };
-  }
 
   ngOnInit() {
     if (this.environments) {
@@ -90,6 +56,13 @@ export class EnvironmentManagerComponent implements OnInit, OnChanges {
     if (changes?.environments?.currentValue) {
       this.selectEnvironment(this.selectedEnvironmentId);
     }
+  }
+
+  onSortSubEnvironments(event: CdkDragDrop<any, any, any>) {
+    this.repositionSubEnvironmentsChange.emit({
+      currentPosition: event.previousIndex || 0,
+      newPosition: event.currentIndex || 0,
+    });
   }
 
   onEditorChange(content: string) {

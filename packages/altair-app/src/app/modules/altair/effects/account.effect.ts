@@ -14,7 +14,7 @@ import {
   withLatestFrom,
 } from 'rxjs/operators';
 import { UnknownError } from '../interfaces/shared';
-import { AccountService, NotifyService } from '../services';
+import { AccountService, NotifyService, SharingService } from '../services';
 
 import { APP_INIT_ACTION } from '../store/action';
 import * as accountActions from '../store/account/account.action';
@@ -23,6 +23,7 @@ import * as workspaceActions from '../store/workspace/workspace.action';
 import * as windowsMetaActions from '../store/windows-meta/windows-meta.action';
 import { debug } from '../utils/logger';
 import { fromPromise } from '../utils';
+import { getErrorResponse } from '../utils/errors';
 
 @Injectable()
 export class AccountEffects {
@@ -43,13 +44,18 @@ export class AccountEffects {
 
           this.store.dispatch(
             new accountActions.AccountIsLoggedInAction({
-              email: user?.email || '',
-              firstName: user?.firstName || user?.email || '',
+              email: user?.email ?? '',
+              firstName: user?.firstName ?? user?.email ?? '',
               lastName: '',
-              picture: user.picture || '',
+              picture: user.picture ?? '',
             })
           );
 
+          return EMPTY;
+        }),
+        switchMap(() => {
+          // account has been checked on app initialization
+          this.store.dispatch(new accountActions.AccountCheckedInitAction());
           return EMPTY;
         })
       );
@@ -96,12 +102,16 @@ export class AccountEffects {
           return EMPTY;
         }),
         catchError((error) => {
-          debug.error(error);
-          this.notifyService.errorWithError(
-            error,
-            'Sorry, we could not log you in. Please check that your username and password are correct'
+          return fromPromise(getErrorResponse(error)).pipe(
+            switchMap((error) => {
+              debug.error(error);
+              this.notifyService.errorWithError(
+                error,
+                'Sorry, we could not log you in. Please check that your username and password are correct'
+              );
+              return EMPTY;
+            })
           );
-          return EMPTY;
         }),
         repeat()
       );
@@ -133,12 +143,16 @@ export class AccountEffects {
           return EMPTY;
         }),
         catchError((error) => {
-          debug.error(error);
-          this.notifyService.errorWithError(
-            error,
-            'Sorry, we could not log you out. Please try again.'
+          return fromPromise(getErrorResponse(error)).pipe(
+            switchMap((error) => {
+              debug.error(error);
+              this.notifyService.errorWithError(
+                error,
+                'Sorry, we could not log you out. Please try again.'
+              );
+              return EMPTY;
+            })
           );
-          return EMPTY;
         }),
         repeat()
       );
@@ -156,9 +170,13 @@ export class AccountEffects {
           return EMPTY;
         }),
         catchError((err: UnknownError) => {
-          debug.error(err);
-          this.notifyService.errorWithError(err, 'Could not load teams');
-          return EMPTY;
+          return fromPromise(getErrorResponse(err)).pipe(
+            switchMap((error) => {
+              debug.error(error);
+              this.notifyService.errorWithError(err, 'Could not load teams');
+              return EMPTY;
+            })
+          );
         }),
         repeat()
       );
@@ -181,9 +199,13 @@ export class AccountEffects {
           })
       ),
       catchError((err: UnknownError) => {
-        debug.error(err);
-        this.notifyService.errorWithError(err, 'Could not load teams');
-        return EMPTY;
+        return fromPromise(getErrorResponse(err)).pipe(
+          switchMap((error) => {
+            debug.error(error);
+            this.notifyService.errorWithError(err, 'Could not load teams');
+            return EMPTY;
+          })
+        );
       }),
       repeat()
     );
@@ -197,10 +219,11 @@ export class AccountEffects {
           fromPromise(this.accountService.getStats()),
           fromPromise(this.accountService.getPlan()),
           fromPromise(this.accountService.getPlanInfos()),
+          fromPromise(this.accountService.getAvailableCredits()),
         ])
       ),
       map(
-        ([stats, plan, planInfos]) =>
+        ([stats, plan, planInfos, availableCredits]) =>
           new accountActions.UpdateAccountAction({
             stats: {
               queriesCount: stats.queries.own,
@@ -209,21 +232,41 @@ export class AccountEffects {
             },
             plan,
             planInfos,
+            availableCredits,
           })
       ),
       catchError((err: UnknownError) => {
-        debug.error(err);
-        this.notifyService.errorWithError(err, 'Could not load user data');
-        return EMPTY;
+        return fromPromise(getErrorResponse(err)).pipe(
+          switchMap((error) => {
+            debug.error(error);
+            this.notifyService.errorWithError(err, 'Could not load user data');
+            return EMPTY;
+          })
+        );
       }),
       repeat()
     );
   });
 
+  onAccountCheckedInit$ = createEffect(
+    () => {
+      return this.actions$.pipe(
+        ofType(accountActions.ACCOUNT_IS_LOGGED_IN),
+        switchMap((action) => {
+          // check for shared links
+          this.sharingService.checkForShareUrl();
+          return EMPTY;
+        })
+      );
+    },
+    { dispatch: false }
+  );
+
   constructor(
     private actions$: Actions,
     private store: Store<RootState>,
     private accountService: AccountService,
-    private notifyService: NotifyService
+    private notifyService: NotifyService,
+    private sharingService: SharingService
   ) {}
 }

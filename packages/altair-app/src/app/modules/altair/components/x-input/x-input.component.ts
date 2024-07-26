@@ -1,6 +1,7 @@
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
   forwardRef,
@@ -14,12 +15,7 @@ import {
   CompletionContext,
   completionKeymap,
 } from '@codemirror/autocomplete';
-import {
-  EditorState,
-  Extension,
-  StateEffect,
-  StateField,
-} from '@codemirror/state';
+import { EditorState, Extension, StateEffect, StateField } from '@codemirror/state';
 import {
   Decoration,
   DecorationSet,
@@ -33,10 +29,8 @@ import {
 import { Store } from '@ngrx/store';
 import { RootState } from 'altair-graphql-core/build/types/state/state.interfaces';
 import { Subscription } from 'rxjs';
-import {
-  EnvironmentService,
-  IEnvironment,
-} from '../../services/environment/environment.service';
+import { EnvironmentService } from '../../services/environment/environment.service';
+import { IEnvironment } from 'altair-graphql-core/build/types/state/environments.interfaces';
 
 const VariableRegex = /{{\s*([\w.]+)\s*}}/g;
 
@@ -56,6 +50,7 @@ const VariableRegex = /{{\s*([\w.]+)\s*}}/g;
 })
 export class XInputComponent implements AfterViewInit, ControlValueAccessor {
   @Input() placeholder = '';
+  @Input() readonly = false;
   @Output() blurChange = new EventEmitter();
   @Output() submitChange = new EventEmitter();
 
@@ -65,13 +60,12 @@ export class XInputComponent implements AfterViewInit, ControlValueAccessor {
   private innerValue = '';
   private activeEnvironment: IEnvironment = {};
 
-  highlightEnvVariable =
-    StateEffect.define<{
-      from: number;
-      to: number;
-      value: string;
-      found: boolean;
-    }>();
+  highlightEnvVariable = StateEffect.define<{
+    from: number;
+    to: number;
+    value: string;
+    found: boolean;
+  }>();
   envHighlightTheme = EditorView.baseTheme({
     '.cm-env-var-highlight': { color: 'var(--red-color)', cursor: 'pointer' },
     '.cm-env-var-highlight--found': {
@@ -85,9 +79,18 @@ export class XInputComponent implements AfterViewInit, ControlValueAccessor {
   constructor(
     private store: Store<RootState>,
     private environmentService: EnvironmentService,
-    private zone: NgZone
+    private zone: NgZone,
+    private cdr: ChangeDetectorRef
   ) {}
+
   ngAfterViewInit(): void {
+    this.setReady();
+  }
+
+  setReady() {
+    if (this.ready) {
+      return;
+    }
     this.ready = true;
     this.extensions = this.getExtensions();
   }
@@ -104,15 +107,17 @@ export class XInputComponent implements AfterViewInit, ControlValueAccessor {
       '.cm-scroller::-webkit-scrollbar': {
         display: 'none',
       },
-      '.cm-tooltip-hover': {
-        background: 'var(--theme-bg-color)',
-        border: '1px solid var(--theme-border-color)',
+      '.cm-tooltip-hover.cm-tooltip': {
+        background: 'rgba(var(--rgb-theme-bg), 0.7)',
+        border: '0px',
         borderRadius: '4px',
         padding: '4px',
+        // zIndex: 1001,
       },
       '.cm-tooltip-variable-value': {
         lineHeight: '1.2',
         color: 'var(--theme-font-color)',
+        // background: 'var(--theme-bg-color)',
         '& .cm-tooltip-arrow:before': {
           borderTopColor: 'var(--theme-bg-color)',
         },
@@ -128,11 +133,12 @@ export class XInputComponent implements AfterViewInit, ControlValueAccessor {
     return [
       inputTheme,
       placeholder(this.placeholder),
+      EditorState.readOnly.of(this.readonly),
       keymap.of([
         {
           key: 'Enter',
           run: () => {
-            this.zone.run(() => this.submitChange.emit());
+            setTimeout(() => this.zone.run(() => this.submitChange.emit()));
             return false;
           },
         },
@@ -248,10 +254,7 @@ export class XInputComponent implements AfterViewInit, ControlValueAccessor {
 
     if (view.state.field(this.highlightField, false)) {
       effects.push(
-        StateEffect.appendConfig.of([
-          this.highlightField,
-          this.envHighlightTheme,
-        ])
+        StateEffect.appendConfig.of([this.highlightField, this.envHighlightTheme])
       );
     }
 
@@ -305,6 +308,7 @@ export class XInputComponent implements AfterViewInit, ControlValueAccessor {
     return this.innerValue;
   }
 
+  @Input()
   // set accessor including call the onchange callback
   set value(v: string) {
     if (v !== this.innerValue) {
@@ -315,8 +319,11 @@ export class XInputComponent implements AfterViewInit, ControlValueAccessor {
 
   // From ControlValueAccessor interface
   writeValue(value: string) {
+    this.setReady();
     if (value !== this.innerValue) {
       this.innerValue = value;
+      this.cdr.markForCheck(); // TODO: why is this needed? the underlying codemirror component refused to update immediately without this
+      this.onChangeCallback(value);
     }
   }
 

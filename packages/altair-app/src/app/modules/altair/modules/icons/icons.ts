@@ -3,17 +3,23 @@ import {
   AlertCircle,
   AlertTriangle,
   Archive,
+  ArrowDownNarrowWide,
+  ArrowDownWideNarrow,
   ArrowLeft,
   Book,
   Box,
+  Braces,
   Briefcase,
   Camera,
+  Check,
+  CheckCheck,
   CheckCircle,
   ChevronDown,
   Circle,
   Clock,
   Cloud,
   Code,
+  Coins,
   Copy,
   Cpu,
   Disc,
@@ -23,17 +29,21 @@ import {
   Eye,
   EyeOff,
   File,
+  FileDown,
   FilePlus,
   FlaskConical,
   Folder,
+  FolderDot,
   FolderMinus,
   FolderPlus,
   Github,
   Grid,
   HardDrive,
   Heart,
+  History,
   Home,
   Info,
+  Lock,
   List,
   Loader,
   LogIn,
@@ -41,6 +51,7 @@ import {
   Minimize2,
   MoreHorizontal,
   MoreVertical,
+  Paintbrush,
   Paperclip,
   PlusCircle,
   PlusSquare,
@@ -49,6 +60,7 @@ import {
   Save,
   Settings,
   Sidebar,
+  Sparkles,
   Sun,
   Tag,
   Terminal,
@@ -69,17 +81,23 @@ export const icons = {
   AlertCircle,
   AlertTriangle,
   Archive,
+  ArrowDownNarrowWide,
+  ArrowDownWideNarrow,
   ArrowLeft,
   Book,
   Box,
+  Braces,
   Briefcase,
   Camera,
+  Check,
+  CheckCheck,
   CheckCircle,
   ChevronDown,
   Circle,
   Clock,
   Cloud,
   Code,
+  Coins,
   Copy,
   Cpu,
   Disc,
@@ -89,17 +107,21 @@ export const icons = {
   Eye,
   EyeOff,
   File,
+  FileDown,
   FilePlus,
   FlaskConical,
   Folder,
+  FolderDot,
   FolderMinus,
   FolderPlus,
   Github,
   Grid,
   HardDrive,
   Heart,
+  History,
   Home,
   Info,
+  Lock,
   List,
   Loader,
   LogIn,
@@ -107,6 +129,7 @@ export const icons = {
   Minimize2,
   MoreHorizontal,
   MoreVertical,
+  Paintbrush,
   Paperclip,
   PlusCircle,
   PlusSquare,
@@ -115,6 +138,7 @@ export const icons = {
   Save,
   Settings,
   Sidebar,
+  Sparkles,
   Sun,
   Tag,
   Terminal,
@@ -130,17 +154,16 @@ export const icons = {
   Zap,
 };
 
-type KebabCaseHelper<S, Acc extends string = ''> =
-  S extends `${infer C}${infer T}`
-    ? KebabCaseHelper<
-        T extends Uncapitalize<T> ? T : Uncapitalize<T>,
-        `${Acc}${Lowercase<C>}${T extends Uncapitalize<T>
-          ? T extends `${number}${string}`
-            ? '-'
-            : ''
-          : '-'}`
-      >
-    : Acc;
+type KebabCaseHelper<S, Acc extends string = ''> = S extends `${infer C}${infer T}`
+  ? KebabCaseHelper<
+      T extends Uncapitalize<T> ? T : Uncapitalize<T>,
+      `${Acc}${Lowercase<C>}${T extends Uncapitalize<T>
+        ? T extends `${number}${string}`
+          ? '-'
+          : ''
+        : '-'}`
+    >
+  : Acc;
 type KebabCase<S extends string> = KebabCaseHelper<S>;
 
 export type IconName = KebabCase<keyof typeof icons>;

@@ -17,13 +17,17 @@ export class AccountDialogComponent {
   @Output() handleLoginChange = new EventEmitter();
   @Output() logoutChange = new EventEmitter();
 
-  dashboardUrl = apiClient.options.dashboardUrl;
-
   submitLogin() {
     this.handleLoginChange.emit();
   }
   async openBillingPage(e: MouseEvent) {
     const { url } = await apiClient.getBillingUrl();
     return externalLink(e, url);
+  }
+  async buyCredits(e: MouseEvent) {
+    const { url } = await apiClient.buyCredits();
+    if (url) {
+      return externalLink(e, url);
+    }
   }
 }

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR=$(dirname "$0")
 ROOT=$(cd "$SCRIPT_DIR/../" && pwd)/
@@ -10,4 +10,10 @@ cd "$ROOT"
 
 yarn
 
-npx concurrently --kill-others "yarn start:app" "yarn start:api:dev" "yarn start:redirect" "yarn start:dashboard" "yarn start:stripe:listen" --names app,api,redirect,dashboard,stripe
+trap_exit() {
+  (cd packages/altair-api; docker compose down)
+}
+trap trap_exit EXIT
+
+# stripe login (if API key is expired)
+npx concurrently --kill-others "yarn start:app" "yarn start:api:dev" "yarn start:redirect" "yarn start:sandbox" "yarn start:stripe:listen" --names app,api,redirect,sandbox,stripe

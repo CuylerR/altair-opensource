@@ -1,39 +1,34 @@
 import { TestBed, inject } from '@angular/core/testing';
 import { expect, jest } from '@jest/globals';
-import { Mock } from 'ts-mocks';
 
-import {
-  HttpClient,
-  HttpResponse,
-  HttpErrorResponse,
-} from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 
-import * as fromRoot from '../../store';
 import { GqlService } from './gql.service';
 import { NotifyService } from '../notify/notify.service';
 import { Store } from '@ngrx/store';
-import { empty as observableEmpty, Observable, of } from 'rxjs';
-import { first, take } from 'rxjs/operators';
+import { EMPTY, of, throwError } from 'rxjs';
+import { take } from 'rxjs/operators';
 import { IntrospectionQuery, buildClientSchema } from 'graphql';
 
 import validIntrospectionData from './__mock__/valid-introspection-data';
-import { Pos, Token } from 'codemirror';
 import { anyFn, mock } from '../../../../../testing';
 import { RootState } from 'altair-graphql-core/build/types/state/state.interfaces';
 import { Position } from '../../utils/editor/helpers';
 import { ElectronAppService } from '../electron-app/electron-app.service';
 import { MockProvider } from 'ng-mocks';
+import { GraphQLRequestHandler } from 'altair-graphql-core/build/request/types';
+import { PerWindowState } from 'altair-graphql-core/build/types/state/per-window.interfaces';
 
 let mockHttpClient: HttpClient;
 let mockNotifyService: NotifyService;
-let mockElectronAppService: ElectronAppService;
 let mockStore: Store<RootState>;
+let mockRequestHandler: GraphQLRequestHandler;
 
 describe('GqlService', () => {
   beforeEach(() => {
     mockHttpClient = {} as HttpClient;
     mockHttpClient.request = jest.fn(() => {
-      return observableEmpty();
+      return EMPTY;
     });
     mockStore = {
       subscribe: anyFn(),
@@ -42,7 +37,11 @@ describe('GqlService', () => {
       error: anyFn(),
       info: anyFn(),
     } as NotifyService;
-    mockElectronAppService = mock();
+    mockRequestHandler = mock({
+      handle() {
+        return EMPTY;
+      },
+    });
     TestBed.configureTestingModule({
       providers: [
         GqlService,
@@ -64,12 +63,9 @@ describe('GqlService', () => {
     });
   });
 
-  it('should create successfully', inject(
-    [GqlService],
-    (service: GqlService) => {
-      expect(service).toBeTruthy();
-    }
-  ));
+  it('should create successfully', inject([GqlService], (service: GqlService) => {
+    expect(service).toBeTruthy();
+  }));
 
   describe('.getSelectedOperationData()', () => {
     it('should return selectedOperation as null for single queries, without requesting user selection', inject(
@@ -139,9 +135,12 @@ describe('GqlService', () => {
     it('should call HttpClient with expected parameters', inject(
       [GqlService],
       (service: GqlService) => {
-        service.sendRequest('http://test.com', {
+        service.sendRequest({
+          url: 'http://test.com',
           method: 'post',
           query: '{}',
+          extensions: '{}',
+          additionalParams: '',
         });
         expect(mockHttpClient.request).toHaveBeenCalled();
         const httpClientArgs = (mockHttpClient.request as any).mock.calls[0];
@@ -151,18 +150,18 @@ describe('GqlService', () => {
         expect(JSON.parse(httpConfigArg.body)).toEqual({
           query: '{}',
           variables: {},
+          extensions: {},
           operationName: null,
         });
-        expect(httpConfigArg.headers.get('Content-Type')).toBe(
-          'application/json'
-        );
+        expect(httpConfigArg.headers.get('Content-Type')).toBe('application/json');
       }
     ));
 
     it('should call HttpClient with correct content type when file is included', inject(
       [GqlService],
       (service: GqlService) => {
-        service.sendRequest('http://test.com', {
+        service.sendRequest({
+          url: 'http://test.com',
           method: 'post',
           query: '{}',
           files: [
@@ -175,6 +174,7 @@ describe('GqlService', () => {
               data: new File([], 'file2'),
             },
           ],
+          additionalParams: '',
         });
         expect(mockHttpClient.request).toHaveBeenCalled();
         const httpClientArgs = (mockHttpClient.request as any).mock.calls[0];
@@ -197,7 +197,8 @@ describe('GqlService', () => {
     it('should call HttpClient with default json content type if file passed to it is not valid', inject(
       [GqlService],
       (service: GqlService) => {
-        service.sendRequest('http://test.com', {
+        service.sendRequest({
+          url: 'http://test.com',
           method: 'post',
           query: '{}',
           files: [
@@ -205,15 +206,14 @@ describe('GqlService', () => {
               name: 'file1',
             },
           ],
+          additionalParams: '',
         });
         expect(mockHttpClient.request).toHaveBeenCalled();
         const httpClientArgs = (mockHttpClient.request as any).mock.calls[0];
         expect(httpClientArgs[0]).toBe('post');
         expect(httpClientArgs[1]).toBe('http://test.com');
         const httpConfigArg = httpClientArgs[2];
-        expect(httpConfigArg.headers.get('Content-Type')).toBe(
-          'application/json'
-        );
+        expect(httpConfigArg.headers.get('Content-Type')).toBe('application/json');
         expect(JSON.parse(httpConfigArg.body)).toEqual({
           query: '{}',
           variables: {},
@@ -228,41 +228,60 @@ describe('GqlService', () => {
       [GqlService],
       async (service: GqlService) => {
         let httpClientCallCount = 0;
-        mockHttpClient.request = (...args: any) => {
+        mockRequestHandler.handle = (request) => {
           httpClientCallCount++;
-          const [method, url, options] = args;
-          expect(options.params.get('operationName')).toEqual(
-            'IntrospectionQuery'
-          );
+          expect(request.selectedOperation).toEqual('IntrospectionQuery');
           switch (httpClientCallCount) {
             case 1: {
-              const resp = new HttpResponse<any>({
-                body: {
+              return of({
+                ok: true,
+                data: JSON.stringify({
                   data: 'introspection data',
-                },
+                }),
+                headers: new Headers(),
+                status: 200,
+                statusText: 'OK',
+                url: 'http://test.com',
+                requestStartTimestamp: 1,
+                requestEndTimestamp: 2,
+                resopnseTimeMs: 1.5,
               });
-              return of(resp) as any;
             }
             default:
-              return of(
-                new HttpResponse<any>({
-                  body: {
-                    data: '',
-                  },
-                })
-              ) as any;
+              return of({
+                ok: true,
+                data: JSON.stringify({
+                  data: '',
+                }),
+                headers: new Headers(),
+                status: 200,
+                statusText: 'OK',
+                url: 'http://test.com',
+                requestStartTimestamp: 1,
+                requestEndTimestamp: 2,
+                resopnseTimeMs: 1.5,
+              });
           }
         };
         const res = await service
-          .getIntrospectionRequest('http://test.com', {
+          .getIntrospectionRequest({
+            url: 'http://test.com',
             method: 'GET',
+            additionalParams: '',
+            handler: mockRequestHandler,
           })
           .pipe(take(1))
           .toPromise();
 
-        expect(res.response.body).toEqual({
-          data: 'introspection data',
-        });
+        expect(res?.body).toEqual(
+          JSON.stringify(
+            {
+              data: 'introspection data',
+            },
+            null,
+            2
+          )
+        );
       }
     ));
 
@@ -270,43 +289,62 @@ describe('GqlService', () => {
       [GqlService],
       async (service: GqlService) => {
         let httpClientCallCount = 0;
-        mockHttpClient.request = (...args: any) => {
+        mockRequestHandler.handle = jest.fn(() => {
           httpClientCallCount++;
           switch (httpClientCallCount) {
             case 1: {
-              const resp = new HttpErrorResponse({
-                error: 'Some network error',
-              });
-              return of(resp) as any;
+              return throwError(() => new Error('Some network error'));
             }
             case 2: {
-              const resp = new HttpResponse<any>({
-                body: {
+              return of({
+                ok: true,
+                data: JSON.stringify({
                   data: 'second introspection data',
-                },
+                }),
+                headers: new Headers(),
+                status: 200,
+                statusText: 'OK',
+                url: 'http://test.com',
+                requestStartTimestamp: 1,
+                requestEndTimestamp: 2,
+                resopnseTimeMs: 1.5,
               });
-              return of(resp) as any;
             }
             default:
-              return of(
-                new HttpResponse<any>({
-                  body: {
-                    data: '',
-                  },
-                })
-              ) as any;
+              return of({
+                ok: true,
+                data: JSON.stringify({
+                  data: '',
+                }),
+                headers: new Headers(),
+                status: 200,
+                statusText: 'OK',
+                url: 'http://test.com',
+                requestStartTimestamp: 1,
+                requestEndTimestamp: 2,
+                resopnseTimeMs: 1.5,
+              });
           }
-        };
+        });
         const res = await service
-          .getIntrospectionRequest('http://test.com', {
+          .getIntrospectionRequest({
+            url: 'http://test.com',
             method: 'GET',
+            additionalParams: '',
+            handler: mockRequestHandler,
           })
           .pipe(take(1))
           .toPromise();
 
-        expect(res.response.body).toEqual({
-          data: 'second introspection data',
-        });
+        expect(res?.body).toEqual(
+          JSON.stringify(
+            {
+              data: 'second introspection data',
+            },
+            null,
+            2
+          )
+        );
       }
     ));
 
@@ -314,35 +352,36 @@ describe('GqlService', () => {
       [GqlService],
       async (service: GqlService) => {
         let httpClientCallCount = 0;
-        mockHttpClient.request = (...args: any) => {
+        mockRequestHandler.handle = () => {
           httpClientCallCount++;
           switch (httpClientCallCount) {
             case 1: {
-              const resp = new HttpErrorResponse({
-                error: 'Some network error',
-              });
-              return of(resp) as any;
+              return throwError(() => new Error('Some network error'));
             }
             case 2: {
-              const resp = new HttpErrorResponse({
-                error: 'Second network error',
-              });
-              return of(resp) as any;
+              return throwError(() => new Error('Second network error'));
             }
             default:
-              return of(
-                new HttpResponse<any>({
-                  body: {
-                    data: '',
-                  },
-                })
-              ) as any;
+              return of({
+                ok: true,
+                data: JSON.stringify({
+                  data: '',
+                }),
+                headers: new Headers(),
+                status: 200,
+                statusText: 'OK',
+                url: 'http://test.com',
+                requestStartTimestamp: 1,
+                requestEndTimestamp: 2,
+                resopnseTimeMs: 1.5,
+              });
           }
         };
 
         try {
-          const res = await service
-            .getIntrospectionRequest('http://test.com', {
+          await service
+            .getIntrospectionRequest({
+              url: 'http://test.com',
               method: 'GET',
             })
             .pipe(take(1))
@@ -435,9 +474,7 @@ describe('GqlService', () => {
     it('should return schema for introspection data', inject(
       [GqlService],
       async (service: GqlService) => {
-        const schema = service.getIntrospectionSchema(
-          validIntrospectionData as any
-        );
+        const schema = service.getIntrospectionSchema(validIntrospectionData as any);
 
         expect(schema).toMatchSnapshot();
       }
@@ -486,9 +523,7 @@ describe('GqlService', () => {
       [GqlService],
       (service: GqlService) => {
         expect(
-          service.hasInvalidFileVariable([
-            { name: '', data: new File([], 'file') },
-          ])
+          service.hasInvalidFileVariable([{ name: '', data: new File([], 'file') }])
         ).toBe(true);
       }
     ));
@@ -516,8 +551,7 @@ describe('GqlService', () => {
           }
         }
       `;
-        const cursor = new Pos(3);
-        const token: Token = {
+        const token: any = {
           start: 10,
           end: 11,
           string: '}',
@@ -670,15 +704,9 @@ describe('GqlService', () => {
           },
           type: 'punctuation',
         };
-        const res = service.fillAllFields(
-          schema,
-          query,
-          new Position(cursor.line, cursor.ch),
-          token,
-          {
-            maxDepth: 1,
-          }
-        );
+        const res = service.fillAllFields(schema, query, new Position(3, 0), token, {
+          maxDepth: 1,
+        });
 
         expect(res).toMatchSnapshot();
       }
@@ -749,7 +777,11 @@ describe('GqlService', () => {
       [GqlService],
       (service: GqlService) => {
         expect(
-          service.isSubscriptionQuery('subscription { get { id message } }')
+          service.isSubscriptionQuery('subscription { get { id message } }', {
+            query: {
+              queryEditorState: {},
+            },
+          } as unknown as PerWindowState)
         ).toBe(true);
       }
     ));
@@ -758,7 +790,9 @@ describe('GqlService', () => {
       [GqlService],
       (service: GqlService) => {
         expect(
-          service.isSubscriptionQuery('query { get { id message } }')
+          service.isSubscriptionQuery('query { get { id message } }', {
+            query: {},
+          } as unknown as PerWindowState)
         ).toBe(false);
       }
     ));
@@ -769,10 +803,7 @@ describe('GqlService', () => {
       [GqlService],
       (service: GqlService) => {
         expect(
-          service.getOperationNameAtIndex(
-            `query first { get { id message } }`,
-            2
-          )
+          service.getOperationNameAtIndex(`query first { get { id message } }`, 2)
         ).toBe('first');
       }
     ));
@@ -869,21 +900,18 @@ describe('GqlService', () => {
   });
 
   describe('.createStreamClient()', () => {
-    it('should return event source', inject(
-      [GqlService],
-      (service: GqlService) => {
-        const client = service.createStreamClient('http://example.com/stream');
+    it('should return event source', inject([GqlService], (service: GqlService) => {
+      const client = service.createStreamClient('http://example.com/stream');
 
-        expect(client.url).toBe('http://example.com/stream');
-        expect(client).toEqual(expect.any(EventSource));
-      }
-    ));
+      expect(client.url).toBe('http://example.com/stream');
+      expect(client).toEqual(expect.any(EventSource));
+    }));
   });
 
   describe('.closeStreamClient()', () => {
     it('should close client', inject([GqlService], (service: GqlService) => {
       const client = new EventSource('http://example.com/stream');
-      const closeSpy = jest.spyOn(client, 'close');
+      jest.spyOn(client, 'close');
       service.closeStreamClient(client);
 
       expect(client.close).toHaveBeenCalled();
@@ -920,47 +948,69 @@ describe('GqlService', () => {
             name: '',
             data: new File([''], 'unknown.file'),
           },
+          {
+            name: 'input.files.$$.file',
+            isMultiple: true,
+            data: [
+              new File([''], 'file1'),
+              new File([''], 'file2'),
+              new File([''], 'file3'),
+              {} as File,
+            ],
+          },
         ];
         const result = service.normalizeFiles(files);
 
         // expect(result).toBe('');
-        expect(result.resolvedFiles.length).toBe(4);
-        expect(result.resolvedFiles).toEqual(
-          expect.arrayContaining([
-            {
-              name: 'first',
-              data: expect.any(File),
-            },
-            {
-              name: 'second.0',
-              data: expect.any(File),
-            },
-            {
-              name: 'second.1',
-              data: expect.any(File),
-            },
-            {
-              name: 'fourth.0',
-              data: expect.any(File),
-            },
-          ])
-        );
-        expect(result.erroneousFiles).toEqual(
-          expect.arrayContaining([
-            {
-              name: 'second.2',
-              data: expect.any(Object),
-            },
-            {
-              name: 'third',
-              data: expect.any(Object),
-            },
-            {
-              name: '',
-              data: expect.any(File),
-            },
-          ])
-        );
+        expect(result.resolvedFiles.length).toBe(7);
+        expect(result.resolvedFiles).toEqual([
+          {
+            name: 'first',
+            data: expect.any(File),
+          },
+          {
+            name: 'second.0',
+            data: expect.any(File),
+          },
+          {
+            name: 'second.1',
+            data: expect.any(File),
+          },
+          {
+            name: 'fourth.0',
+            data: expect.any(File),
+          },
+          {
+            name: 'input.files.0.file',
+            data: expect.any(File),
+          },
+          {
+            name: 'input.files.1.file',
+            data: expect.any(File),
+          },
+          {
+            name: 'input.files.2.file',
+            data: expect.any(File),
+          },
+        ]);
+        expect(result.erroneousFiles).toEqual([
+          {
+            name: 'second.2',
+            data: expect.any(Object),
+          },
+          {
+            name: 'third',
+            data: expect.any(Object),
+          },
+          {
+            name: '',
+            data: expect.any(File),
+          },
+          {
+            name: 'input.files.3.file',
+            data: expect.any(Object),
+          },
+        ]);
       }
     ));
     it('should return only the first file data if not multiple and has > 1 data', inject(
@@ -977,10 +1027,7 @@ describe('GqlService', () => {
           },
           {
             name: 'third',
-            data: [
-              new File([''], 'third1.file'),
-              new File([''], 'third2.file'),
-            ],
+            data: [new File([''], 'third1.file'), new File([''], 'third2.file')],
           },
         ];
         const result = service.normalizeFiles(files);

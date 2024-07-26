@@ -1,8 +1,4 @@
 <div class="app-window__content">
-  <app-loader
-    [loading]="!!(layout$ | async)?.isLoading"
-    (cancelChange)="cancelRequest()"
-  ></app-loader>
   <app-url-box
     [apiUrl]="apiUrl"
     [httpVerb]="(query$ | async)?.httpVerb"
@@ -13,6 +9,7 @@
     [queryOperations]="queryOperations$ | async"
     [streamState]="streamState$ | async"
     [currentCollection]="currentCollection$ | async"
+    [hasUnsavedChanges]="hasUnsavedChanges$ | async"
     (urlChange)="setApiUrl($event)"
     (httpVerbChange)="setApiMethod($event)"
     (sendRequest)="sendRequest()"
@@ -42,6 +39,8 @@
         (preRequestEnabledChange)="updatePreRequestEnabled($event)"
         (postRequestScriptChange)="updatePostRequestScript($event)"
         (postRequestEnabledChange)="updatePostRequestEnabled($event)"
+        (authTypeChange)="updateAuthType($event)"
+        (authDataChange)="updateAuthData($event)"
         [windowId]="windowId"
         [activeWindowId]="activeWindowId$ | async"
         [query]="query"
@@ -57,32 +56,28 @@
         [shortcutMapping]="editorShortcutMapping$ | async"
         [enableExperimental]="enableExperimental$ | async"
         [betaDisableNewEditor]="betaDisableNewEditor$ | async"
+        [authorizationState]="authorizationState$ | async"
       ></app-query-editor>
       <app-query-result
-        [queryResult]="queryResult$ | async"
+        [queryResponses]="queryResponses$ | async"
         [responseTime]="responseTime$ | async"
         [responseStatus]="responseStatus$ | async"
         [responseStatusText]="responseStatusText$ | async"
         [responseHeaders]="responseHeaders$ | async"
         [requestScriptLogs]="requestScriptLogs$ | async"
         [isSubscribed]="isSubscribed$ | async"
-        [subscriptionResponses]="subscriptionResponses$ | async"
+        [isRunning]="(layout$ | async)?.isLoading"
         [subscriptionUrl]="subscriptionUrl"
         [tabSize]="tabSize$ | async"
-        [autoscrollSubscriptionResponses]="
-          autoscrollSubscriptionResponses$ | async
-        "
+        [autoscrollResponseList]="autoscrollResponseList$ | async"
         [windowId]="windowId"
         [activeWindowId]="activeWindowId$ | async"
         [uiActions]="resultPaneUiActions$ | async"
         [bottomPanels]="resultPaneBottomPanels$ | async"
         (clearResultChange)="clearResult()"
-        (downloadResultChange)="downloadResult()"
-        (stopSubscriptionChange)="stopSubscription()"
-        (clearSubscriptionChange)="clearSubscription()"
-        (autoscrollSubscriptionResponsesChange)="
-          toggleAutoscrollSubscriptionResponses()
-        "
+        (downloadResultChange)="downloadResult($event)"
+        (cancelRequestChange)="cancelRequest()"
+        (autoscrollResponseListChange)="toggleAutoscrollSubscriptionResponses()"
         (uiActionExecuteChange)="onExecuteUiAction($event)"
         (bottomPanelActiveToggle)="togglePanelActive($event)"
       ></app-query-result>
@@ -93,6 +88,7 @@
         [ngClass]="{ 'hide-doc': (showDocs$ | async) !== true }"
         [isLoading]="docsIsLoading$ | async"
         [addQueryDepthLimit]="addQueryDepthLimit$ | async"
+        [hideDeprecatedDocItems]="hideDeprecatedDocItems$ | async"
         [tabSize]="tabSize$ | async"
         [lastUpdatedAt]="schemaLastUpdatedAt$ | async"
         (setDocViewChange)="setDocView($event)"
@@ -107,6 +103,7 @@
     <nz-modal
       [nzVisible]="showHeaderDialog"
       (nzVisibleChange)="toggleHeader($event)"
+      [nzCloseIcon]="'close-circle'"
       [nzTitle]="modalTitle"
       [nzContent]="modalContent"
       [nzFooter]="modalFooter"
@@ -121,52 +118,62 @@
 
       <ng-template #modalContent>
         <div class="app-dialog-body">
-          <div
-            class="set-header-input-container"
-            *ngFor="
-              let header of headers$ | async;
-              trackBy: trackByFn;
-              let i = index
-            "
-            [ngClass]="{
-              'set-header-input-container--disabled': !header.enabled
-            }"
-          >
-            <label
-              nz-checkbox
-              [ngModel]="header.enabled"
-              (ngModelChange)="headerEnabledChange($event, i)"
-            ></label>
-            <div class="set-header-input-column">
-              <app-fancy-input
-                class="set-header-input"
-                placeholder="Header key"
-                [ngModel]="header.key"
-                (ngModelChange)="headerKeyChange($event, i)"
-                (submitChange)="toggleHeader()"
-              ></app-fancy-input>
-            </div>
-            <div class="set-header-input-column">
-              <app-fancy-input
-                class="set-header-input"
-                placeholder="Header value"
-                [ngModel]="header.value"
-                (ngModelChange)="headerValueChange($event, i)"
-                (submitChange)="toggleHeader()"
-              ></app-fancy-input>
-            </div>
-            <button
-              class="header-input-remove-button"
-              (click)="removeHeader(i)"
+          @for (
+            header of headers$ | async;
+            track trackByIndex(i, header);
+            let i = $index
+          ) {
+            <div
+              class="set-header-input-container"
+              [ngClass]="{
+                'set-header-input-container--disabled': !header.enabled
+              }"
             >
-              &times;
-            </button>
-          </div>
-          <div *ngIf="!isElectron" class="headers__notice">
-            {{ 'HEADERS_FORBIDDEN_NOTICE' | translate }}
+              <label
+                nz-checkbox
+                [ngModel]="header.enabled"
+                (ngModelChange)="headerEnabledChange($event, i)"
+              ></label>
+              <div class="set-header-input-column">
+                <app-x-input
+                  class="input"
+                  placeholder="Header key"
+                  [ngModel]="header.key"
+                  (ngModelChange)="headerKeyChange($event, i)"
+                  (submitChange)="toggleHeader()"
+                ></app-x-input>
+              </div>
+              <div class="set-header-input-column">
+                <app-x-input
+                  class="input"
+                  placeholder="Header value"
+                  [ngModel]="header.value"
+                  (ngModelChange)="headerValueChange($event, i)"
+                  (submitChange)="toggleHeader()"
+                ></app-x-input>
+              </div>
+              <button class="header-input-remove-button" (click)="removeHeader(i)">
+                &times;
+              </button>
+            </div>
+          }
+          @if (!isElectron) {
+            <div class="headers__notice">
+              {{ 'HEADERS_FORBIDDEN_NOTICE' | translate }}
+              <a
+                href="https://altairgraphql.dev/docs/learn/web-limitations"
+                target="_blank"
+                rel="noopener"
+                >Learn more</a
+              >
+            </div>
+          }
+          <div class="headers__notice">
+            {{ 'HEADERS_GLOBAL_HEADERS_NOTICE' | translate }}
             <a
-              href="https://sirmuel.design/altair-graphql-web-app-limitations-b671a0a460b8"
+              href="https://altairgraphql.dev/docs/features/environment-variables#special-environment-variables"
               target="_blank"
+              rel="noopener"
               >Learn more</a
             >
           </div>
@@ -175,35 +182,31 @@
 
       <ng-template #modalFooter>
         <div class="app-dialog-footer">
-          <button
-            track-id="add_header"
-            class="app-button active-grey left"
-            (click)="addHeader()"
-          >
+          <button track-id="add_header" class="btn left" (click)="addHeader()">
             {{ 'ADD_HEADER_TEXT' | translate }}
           </button>
-          <button
-            class="app-button active-primary right"
-            (click)="toggleHeader()"
-          >
-            {{ 'SAVE_BUTTON' | translate }}
+          <button class="btn btn--primary right" (click)="toggleHeader()">
+            {{ 'DONE_BUTTON' | translate }}
           </button>
         </div>
       </ng-template>
     </nz-modal>
-    <app-subscription-url-dialog
+    <app-request-handler-dialog
+      [requestHandlerId]="(query$ | async)?.requestHandlerId"
+      [requestHandlerAdditionalParams]="
+        (query$ | async)?.requestHandlerAdditionalParams
+      "
       [subscriptionUrl]="subscriptionUrl"
       [subscriptionConnectionParams]="subscriptionConnectionParams"
-      [subscriptionProviders]="availableSubscriptionProviders$ | async"
-      [selectedSubscriptionProviderId]="selectedSubscriptionProviderId"
-      [showDialog]="showSubscriptionUrlDialog"
-      (toggleDialogChange)="toggleSubscriptionUrlDialog($event)"
-      (subscriptionUrlChange)="updateSubscriptionUrl($event)"
-      (subscriptionConnectionParamsChange)="
-        updateSubscriptionConnectionParams($event)
+      [subscriptionUseDefaultRequestHandler]="
+        (query$ | async)?.subscriptionUseDefaultRequestHandler
       "
-      (subscriptionProviderIdChange)="updateSubscriptionProviderId($event)"
-    ></app-subscription-url-dialog>
+      [selectedSubscriptionRequestHandlerId]="selectedSubscriptionRequestHandlerId"
+      [requestHandlers]="availableRequestHandlers$ | async"
+      [showDialog]="showRequestHandlerDialog"
+      (toggleDialogChange)="toggleRequestHandlerDialog($event)"
+      (requestHandlerInfoChange)="upateRequestHandlerInfo($event)"
+    ></app-request-handler-dialog>
     <app-history-dialog
       [historyList]="historyList"
       [showDialog]="showHistoryDialog"
@@ -223,5 +226,11 @@
         (preRequestEnabledChange)="updatePreRequestEnabled($event)"
       ></app-pre-request-editor>
     </app-dialog>
+    <app-request-extensions-dialog
+      [showDialog]="showRequestExtensionsDialog$ | async"
+      [data]="(query$ | async)?.requestExtensions"
+      (toggleDialogChange)="toggleRequestExtensionsDialog($event)"
+      (dataChange)="updateRequestExtensions($event)"
+    />
   </div>
 </div>

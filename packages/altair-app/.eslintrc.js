@@ -34,9 +34,9 @@ module.exports = {
             type: 'attribute',
           },
         ],
-        'prettier/prettier': 1,
+        'prettier/prettier': 0,
         'require-await': 'off',
-        '@typescript-eslint/require-await': 'warn',
+        '@typescript-eslint/require-await': 'off',
         '@typescript-eslint/no-explicit-any': 'off',
         '@typescript-eslint/no-empty-function': 'warn',
         '@typescript-eslint/no-var-requires': 'warn',
@@ -47,6 +47,16 @@ module.exports = {
       files: ['*.html'],
       extends: ['plugin:@angular-eslint/template/recommended'],
       rules: {},
+    },
+    {
+      files: ['*.js'],
+      parserOptions: {
+        ecmaVersion: 'latest',
+      },
+
+      env: {
+        es6: true,
+      },
     },
   ],
 };

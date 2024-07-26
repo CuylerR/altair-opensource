@@ -21,6 +21,19 @@ body {
   font-family: var(--font-family);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  background: radial-gradient(
+      farthest-corner at bottom right,
+      rgba(var(--rgb-primary), 0.5) 0%,
+      transparent 80%
+    ),
+    radial-gradient(
+      farthest-corner at top left,
+      rgba(var(--rgb-primary), 0.5) 0%,
+      transparent 20%
+    ),
+    radial-gradient(var(--theme-bg-color), var(--theme-bg-color));
+  // background: pink; // TODO: remove after testing
 }
 
 input {
@@ -42,7 +55,12 @@ input[type='url'] {
   }
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   color: var(--theme-font-color);
 }
 
@@ -123,6 +141,14 @@ h1, h2, h3, h4, h5, h6 {
   margin-bottom: 32px;
 }
 
+.p-5 {
+  padding: 5px;
+}
+
+.p-10 {
+  padding: 10px;
+}
+
 @keyframes anim-rotate {
   0% {
     transform: rotate(0deg) translateZ(0);
@@ -133,14 +159,47 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+.glassy-border {
+  position: relative;
+  &:before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: linear-gradient(
+        to bottom right,
+        rgba(255, 255, 255, 0.1) 0%,
+        transparent 20%,
+        rgba(255, 255, 255, 0.1) 100%
+      )
+      border-box;
+    mask:
+      linear-gradient(#fff 0 0) padding-box,
+      linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+  }
+}
+
 @mixin show-transition {
   visibility: visible;
   opacity: 1;
-  transition: visibility 0s var(--app-easing) 0s, opacity 300ms;
+  transition:
+    visibility 0s var(--app-easing) 0s,
+    opacity 300ms;
 }
 
 @mixin hide-transition {
   visibility: hidden;
   opacity: 0;
-  transition: visibility 0s var(--app-easing) 300ms, opacity 300ms;
+  transition:
+    visibility 0s var(--app-easing) 300ms,
+    opacity 300ms;
+}
+
+@mixin debug() {
+  @if $debug {
+    background: rgb(random(255), random(255), random(255));
+  }
 }

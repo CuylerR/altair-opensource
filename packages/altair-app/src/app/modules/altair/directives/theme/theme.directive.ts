@@ -1,10 +1,4 @@
-import {
-  Directive,
-  Input,
-  OnInit,
-  OnChanges,
-  SimpleChanges,
-} from '@angular/core';
+import { Directive, Input, OnInit, OnChanges, SimpleChanges } from '@angular/core';
 import {
   createTheme,
   hexToRgbStr,
@@ -12,8 +6,9 @@ import {
   ITheme,
 } from 'altair-graphql-core/build/theme';
 
-import { css } from 'emotion';
+import { css } from '@emotion/css';
 import { ThemeRegistryService } from '../../services';
+import { NzConfigService } from 'ng-zorro-antd/core/config';
 
 @Directive({
   selector: '[appTheme]',
@@ -21,23 +16,29 @@ import { ThemeRegistryService } from '../../services';
 export class ThemeDirective implements OnInit, OnChanges {
   @Input() appTheme: ICustomTheme = {};
   @Input() appDarkTheme: ICustomTheme = {};
+  @Input() appAccentColor = '';
 
   private className = '';
 
-  constructor(private themeRegistry: ThemeRegistryService) {}
+  constructor(
+    private themeRegistry: ThemeRegistryService,
+    private nzConfigService: NzConfigService
+  ) {}
 
   ngOnInit() {
-    this.addHTMLClass(this.appTheme, this.appDarkTheme);
+    this.applyTheme(this.appTheme, this.appDarkTheme, this.appAccentColor);
   }
 
   ngOnChanges(changes: SimpleChanges) {
     if (
       changes?.appTheme?.currentValue ||
-      changes?.appDarkTheme?.currentValue
+      changes?.appDarkTheme?.currentValue ||
+      changes?.appAccentColor?.currentValue
     ) {
-      this.addHTMLClass(
+      this.applyTheme(
         changes.appTheme?.currentValue,
-        changes.appDarkTheme?.currentValue
+        changes.appDarkTheme?.currentValue,
+        changes.appAccentColor?.currentValue ?? this.appAccentColor
       );
     }
   }
@@ -69,9 +70,7 @@ export class ThemeDirective implements OnInit, OnChanges {
       --secondary-color: ${theme.colors.secondary};
       --tertiary-color: ${theme.colors.tertiary};
 
-      --shadow-bg: rgba(${hexToRgbStr(theme.shadow.color)}, ${
-      theme.shadow.opacity
-    });
+      --shadow-bg: rgba(${hexToRgbStr(theme.shadow.color)}, ${theme.shadow.opacity});
 
       --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", 'Helvetica Neue', Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 
@@ -110,6 +109,7 @@ export class ThemeDirective implements OnInit, OnChanges {
       --rgb-theme-off-font: ${hexToRgbStr(theme.colors.offFont)};
       --rgb-theme-border: ${hexToRgbStr(theme.colors.border)};
       --rgb-theme-off-border: ${hexToRgbStr(theme.colors.offBorder)};
+      --rgb-header-bg: ${hexToRgbStr(theme.colors.headerBg || theme.colors.offBg)};
 
       --editor-comment-color: ${theme.editor.colors.comment};
       --editor-string-color: ${theme.editor.colors.string};
@@ -126,12 +126,17 @@ export class ThemeDirective implements OnInit, OnChanges {
     `;
   }
 
-  getDynamicClassName(appTheme: ICustomTheme, appDarkTheme?: ICustomTheme) {
+  getDynamicClassName(
+    appTheme: ICustomTheme,
+    appDarkTheme?: ICustomTheme,
+    accentColor?: string
+  ) {
+    const extraTheme = accentColor ? { colors: { primary: accentColor } } : {};
     if (appTheme && appDarkTheme) {
       return css(`
-        ${this.getCssString(createTheme(appTheme))}
+        ${this.getCssString(createTheme(appTheme, extraTheme))}
         @media (prefers-color-scheme: dark) {
-          ${this.getCssString(createTheme(appDarkTheme))}
+          ${this.getCssString(createTheme(appDarkTheme, extraTheme))}
         }
       `);
     }
@@ -139,25 +144,39 @@ export class ThemeDirective implements OnInit, OnChanges {
     if (!appTheme || appTheme.isSystem) {
       return css(`
         ${this.getCssString(
-          createTheme(this.themeRegistry.getTheme('light')!, appTheme)
+          createTheme(this.themeRegistry.getTheme('light')!, appTheme, extraTheme)
         )}
         @media (prefers-color-scheme: dark) {
           ${this.getCssString(
-            createTheme(this.themeRegistry.getTheme('dark')!, appTheme)
+            createTheme(this.themeRegistry.getTheme('dark')!, appTheme, extraTheme)
           )}
         }
       `);
     }
 
-    return css(this.getCssString(createTheme(appTheme)));
+    return css(this.getCssString(createTheme(appTheme, extraTheme)));
   }
 
-  addHTMLClass(appTheme: ICustomTheme, appDarkTheme?: ICustomTheme) {
+  applyTheme(theme: ICustomTheme, darkTheme?: ICustomTheme, accentColor?: string) {
+    this.nzConfigService.set('theme', {
+      primaryColor: theme.colors?.primary,
+      errorColor: theme.colors?.red,
+      warningColor: theme.colors?.yellow,
+      successColor: theme.colors?.green,
+    });
+    this.addHTMLClass(theme, darkTheme, accentColor);
+  }
+
+  addHTMLClass(
+    appTheme: ICustomTheme,
+    appDarkTheme?: ICustomTheme,
+    accentColor?: string
+  ) {
     if (this.className) {
       document.documentElement.classList.remove(this.className);
     }
 
-    this.className = this.getDynamicClassName(appTheme, appDarkTheme);
+    this.className = this.getDynamicClassName(appTheme, appDarkTheme, accentColor);
     document.documentElement.classList.add(this.className);
   }
 }

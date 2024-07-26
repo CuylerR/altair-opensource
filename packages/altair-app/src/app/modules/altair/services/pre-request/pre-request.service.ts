@@ -9,10 +9,16 @@ import { getActiveSubEnvironmentState } from '../../store/environments/selectors
 import { NotifyService } from '../notify/notify.service';
 import { take } from 'rxjs/operators';
 import { RootState } from 'altair-graphql-core/build/types/state/state.interfaces';
+import {
+  CookieOptions,
+  ScriptContextData,
+  ScriptTranformResult,
+} from 'altair-graphql-core/build/script/types';
 import { RequestScriptError } from './errors';
-import { CookieOptions, getGlobalContext, ScriptContextData } from './helpers';
-import { ScriptEvaluator } from './evaluator';
 import { DbService } from '../db.service';
+import { ScriptEvaluatorClientEngine } from 'altair-graphql-core/build/script/evaluator-client-engine';
+import { getGlobalContext } from 'altair-graphql-core/build/script/context';
+import { EvaluatorClientFactory } from './evaluator-client.factory';
 
 const storageNamespace = 'request-script';
 
@@ -31,7 +37,7 @@ export class PreRequestService {
   async executeScript(
     script: string,
     data: ScriptContextData
-  ): Promise<ScriptContextData> {
+  ): Promise<ScriptTranformResult> {
     const disableNewScriptLogic = await this.store
       .select((state) => state.settings['beta.disable.newScript'])
       .pipe(take(1))
@@ -46,7 +52,7 @@ export class PreRequestService {
   async executeScriptNew(
     script: string,
     data: ScriptContextData
-  ): Promise<ScriptContextData> {
+  ): Promise<ScriptTranformResult> {
     const self = this;
 
     // Use an allow list of cookies (configured in settings)
@@ -55,15 +61,20 @@ export class PreRequestService {
       .pipe(take(1))
       .toPromise();
     const allCookies = self.cookieService.getAll();
-    const cookies = Object.entries(allCookies).reduce((acc, [key, value]) => {
-      if (allowedCookiesList?.includes(key)) {
-        acc[key] = value;
-      }
-      return acc;
-    }, {} as Record<string, string>);
+    const cookies = Object.entries(allCookies).reduce(
+      (acc, [key, value]) => {
+        if (allowedCookiesList?.includes(key)) {
+          acc[key] = value;
+        }
+        return acc;
+      },
+      {} as Record<string, string>
+    );
     data.__cookieJar = cookies;
 
-    const res = await new ScriptEvaluator().executeScript(script, data, {
+    const res = await new ScriptEvaluatorClientEngine(
+      new EvaluatorClientFactory()
+    ).executeScript(script, data, {
       alert: async (msg: string) =>
         this.notifyService.info(`Alert: ${msg}`, 'Request script'),
       log: async (d: unknown) => {
@@ -77,11 +88,7 @@ export class PreRequestService {
           return null;
         }
       },
-      setCookie: async (
-        key: string,
-        value: string,
-        options?: CookieOptions
-      ) => {
+      setCookie: async (key: string, value: string, options?: CookieOptions) => {
         if (!allowedCookiesList?.includes(key)) {
           return this.notifyService.warning(
             `Cookie "${key}" is not allowed to be set by scripts. You can configure allowed cookies in settings.`,
@@ -107,14 +114,12 @@ export class PreRequestService {
   async executeScriptOld(
     script: string,
     data: ScriptContextData
-  ): Promise<ScriptContextData> {
+  ): Promise<ScriptTranformResult> {
     const Sval: typeof import('sval').default = ((await import('sval')) as any)
       .default;
 
     // deep cloning
-    const clonedMutableData: ScriptContextData = JSON.parse(
-      JSON.stringify(data)
-    );
+    const clonedMutableData: ScriptContextData = JSON.parse(JSON.stringify(data));
     const interpreter = new Sval({
       ecmaVer: 10,
       sandBox: true,
@@ -122,11 +127,7 @@ export class PreRequestService {
 
     interpreter.import({
       altair: getGlobalContext(clonedMutableData, {
-        setCookie: async (
-          key: string,
-          value: string,
-          options?: CookieOptions
-        ) => {
+        setCookie: async (key: string, value: string, options?: CookieOptions) => {
           this.cookieService.set(key, value, options);
         },
         request: async (arg1, arg2, arg3) => {
@@ -161,11 +162,13 @@ export class PreRequestService {
       throw new RequestScriptError(error);
     }
     if (clonedMutableData.__toSetActiveEnvironment) {
-      await this.updateActiveEnvironment(
-        clonedMutableData.__toSetActiveEnvironment
-      );
+      await this.updateActiveEnvironment(clonedMutableData.__toSetActiveEnvironment);
     }
-    return clonedMutableData;
+    return {
+      environment: clonedMutableData.environment,
+      requestScriptLogs: clonedMutableData.requestScriptLogs ?? [],
+      additionalHeaders: [],
+    };
   }
   private getStorageItem(key: string) {
     return this.dbService
@@ -179,9 +182,7 @@ export class PreRequestService {
       .pipe(take(1))
       .toPromise();
   }
-  private async updateActiveEnvironment(
-    environmentData: Record<string, unknown>
-  ) {
+  private async updateActiveEnvironment(environmentData: Record<string, unknown>) {
     const activeEnvState = await this.store
       .select(getActiveSubEnvironmentState)
       .pipe(take(1))
@@ -206,9 +207,9 @@ export class PreRequestService {
           })
         );
         this.notifyService.info(
-          `Updated active environment variables: ${Object.keys(
-            environmentData
-          ).join(', ')}.`,
+          `Updated active environment variables: ${Object.keys(environmentData).join(
+            ', '
+          )}.`,
           'Request script'
         );
       } catch (error) {

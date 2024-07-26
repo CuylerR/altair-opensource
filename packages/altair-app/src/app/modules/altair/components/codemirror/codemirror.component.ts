@@ -23,6 +23,7 @@ import {
   EditorView,
   keymap,
   lineNumbers,
+  tooltips,
   ViewUpdate,
 } from '@codemirror/view';
 import {
@@ -47,6 +48,8 @@ import {
 } from '@codemirror/language';
 
 import { tags as t } from '@lezer/highlight';
+import { InternalEditorError } from '../../utils/errors';
+import { debug } from '../../utils/logger';
 
 @Component({
   selector: 'app-codemirror',
@@ -78,7 +81,7 @@ export class CodemirrorComponent
   @ViewChild('ref') ref!: ElementRef<HTMLTextAreaElement>;
 
   view?: EditorView;
-  private value = '';
+  private innerValue = '';
   private onTouched = () => {};
   private onChange = (s: string) => {};
 
@@ -127,10 +130,25 @@ export class CodemirrorComponent
     this.view?.destroy();
   }
 
+  // get accessor
+  get value() {
+    return this.innerValue;
+  }
+
+  @Input()
+  // set accessor including call the onchange callback
+  set value(v: string) {
+    this.writeValue(v);
+  }
+
   writeValue(value: string) {
+    if (value === this.innerValue) {
+      return;
+    }
     if (value === null || value === undefined) {
       return;
     }
+    value = `${value}`;
 
     if (!this.view) {
       return;
@@ -139,7 +157,7 @@ export class CodemirrorComponent
     const editorValue = this.view.state.doc.toString();
 
     if (editorValue !== value) {
-      this.value = value;
+      this.innerValue = value;
       this.view.dispatch({
         changes: { from: 0, to: this.view.state.doc.length, insert: value },
       });
@@ -155,8 +173,8 @@ export class CodemirrorComponent
   }
 
   codemirrorValueChanged(value: string) {
-    if (this.value !== value) {
-      this.value = value;
+    if (this.innerValue !== value) {
+      this.innerValue = value;
       this.onChange(value);
     }
   }
@@ -177,6 +195,10 @@ export class CodemirrorComponent
         this.zone.run(() => this.focusChanged(vu.view.hasFocus));
       }
     });
+    const exceptionSink = EditorView.exceptionSink.of((exception) => {
+      // throw new InternalEditorError(exception);
+      throw exception;
+    });
     const baseTheme = EditorView.theme({
       '&.cm-editor': {
         cursor: 'text',
@@ -188,8 +210,7 @@ export class CodemirrorComponent
         background: 'var(--theme-bg-color)',
         border: '1px solid var(--theme-border-color)',
         borderRadius: '4px',
-        fontSize:
-          'calc((var(--editor-font-size) / var(--baseline-size)) * 1rem)',
+        fontSize: 'calc((var(--editor-font-size) / var(--baseline-size)) * 1rem)',
 
         '& > ul': {
           background: 'var(--theme-bg-color)',
@@ -394,14 +415,38 @@ export class CodemirrorComponent
         top: true,
       }),
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      // tooltips({ parent: document.body }),
     ];
 
     return [
       updateListener,
+      exceptionSink,
       Prec.highest(extraExtensions),
+      // disable default behavior of used extension shortcuts
+      Prec.high(
+        keymap.of([
+          {
+            key: 'Cmd-Enter',
+            run: noOpCommand,
+          },
+          {
+            key: 'Ctrl-Enter',
+            run: noOpCommand,
+          },
+          {
+            key: 'Shift-Ctrl-p',
+            run: noOpCommand,
+          },
+        ])
+      ),
       !this.bare ? [...baseExtensions] : [],
 
       baseTheme,
     ];
   }
 }
+
+export const noOpCommand = () => {
+  debug.log('no op');
+  return true;
+};
